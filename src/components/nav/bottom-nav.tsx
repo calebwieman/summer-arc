@@ -2,53 +2,43 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Home,
-  Briefcase,
-  DollarSign,
-  Activity,
-  CalendarDays,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+import { BarChart3, Calendar, Home } from "lucide-react";
 
 const TABS = [
-  { href: "/", label: "Today", Icon: Home },
-  { href: "/aigentic", label: "Aigentic", Icon: Briefcase },
-  { href: "/money", label: "Money", Icon: DollarSign },
-  { href: "/body", label: "Body", Icon: Activity },
-  { href: "/arc", label: "Arc", Icon: CalendarDays },
-];
+  { href: "/", label: "Today", icon: Home },
+  { href: "/history", label: "History", icon: Calendar },
+  { href: "/review", label: "Review", icon: BarChart3 },
+] as const;
 
 export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-[var(--border)] bg-[var(--bg)]/85 backdrop-blur-lg">
-      <div className="mx-auto max-w-lg flex justify-around pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-        {TABS.map(({ href, label, Icon }) => {
+    <nav
+      aria-label="Primary"
+      className="fixed bottom-0 inset-x-0 z-40 bg-background/80 backdrop-blur-xl border-t border-border"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
+      <ul className="mx-auto max-w-md flex">
+        {TABS.map(({ href, label, icon: Icon }) => {
           const active =
-            href === "/"
-              ? pathname === "/"
-              : pathname === href || pathname.startsWith(href + "/");
+            href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                "flex flex-col items-center gap-1 px-3 py-1.5 rounded-lg transition-colors min-w-[60px]",
-                active
-                  ? "text-[var(--accent)]"
-                  : "text-[var(--text-dim)] hover:text-[var(--text-muted)]"
-              )}
-            >
-              <Icon size={20} strokeWidth={active ? 2.4 : 2} />
-              <span className="text-[10px] font-medium tracking-wide">
-                {label}
-              </span>
-            </Link>
+            <li key={href} className="flex-1">
+              <Link
+                href={href}
+                aria-current={active ? "page" : undefined}
+                className={`flex flex-col items-center justify-center gap-1 min-h-16 py-2 transition-colors ${
+                  active ? "text-accent" : "text-muted hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-5 w-5" strokeWidth={active ? 2.25 : 1.75} />
+                <span className="text-[11px] tracking-tight">{label}</span>
+              </Link>
+            </li>
           );
         })}
-      </div>
+      </ul>
     </nav>
   );
 }

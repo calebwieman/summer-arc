@@ -1,12 +1,12 @@
 {
-  "name": "Summer Arc",
-  "short_name": "Summer Arc",
-  "description": "Day N of 108 — the arc of summer 2026",
+  "name": "Summer",
+  "short_name": "Summer",
+  "description": "Daily discipline tracking.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
   "orientation": "portrait",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
   "icons": [
     {
       "src": "/icon-192.png",

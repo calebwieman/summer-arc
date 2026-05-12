@@ -1,43 +1,55 @@
 import type { Metadata, Viewport } from "next";
 import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
-import "./globals.css";
 import { BottomNav } from "@/components/nav/bottom-nav";
+import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
+import { NotificationScheduler } from "@/components/review/notification-scheduler";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Summer Arc",
-  description: "Day N of 108 — the arc of summer 2026",
+  title: "Summer",
+  description: "Daily discipline tracking.",
+  applicationName: "Summer",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
+    title: "Summer",
     statusBarStyle: "black-translucent",
-    title: "Summer Arc",
+  },
+  icons: {
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  other: {
+    "apple-mobile-web-app-capable": "yes",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: "#0a0a0a",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false,
   viewportFit: "cover",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html
-      lang="en"
-      className={`${GeistSans.variable} ${GeistMono.variable} h-full`}
-      style={{ colorScheme: "dark" }}
-    >
-      <body className="min-h-full bg-[var(--bg)] text-[var(--text)] antialiased">
-        <main className="mx-auto max-w-lg pb-28 min-h-screen">{children}</main>
+    <html lang="en" className={GeistSans.variable}>
+      <body className="min-h-dvh bg-background text-foreground font-sans">
+        {children}
         <BottomNav />
+        <NotificationScheduler />
+        <ServiceWorkerRegister />
       </body>
     </html>
   );
