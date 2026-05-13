@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Calendar, Home } from "lucide-react";
+import { BarChart3, Calendar, Home, Settings } from "lucide-react";
 
 const TABS = [
   { href: "/", label: "Today", icon: Home },
   { href: "/history", label: "History", icon: Calendar },
   { href: "/review", label: "Review", icon: BarChart3 },
+  { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
 export function BottomNav() {

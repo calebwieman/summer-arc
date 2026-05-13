@@ -3,11 +3,12 @@
 //  - Navigation (HTML routes): network-first, fall back to cache, then "/"
 //  - Static assets (same-origin GET): stale-while-revalidate
 //  - Bump CACHE_NAME to force-refresh clients
-const CACHE_NAME = "summer-cache-v1";
+const CACHE_NAME = "summer-cache-v2";
 const APP_SHELL = [
   "/",
   "/history",
   "/review",
+  "/settings",
   "/manifest.json",
   "/icon-192.png",
   "/icon-512.png",
