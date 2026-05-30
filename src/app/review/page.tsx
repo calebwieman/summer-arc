@@ -15,7 +15,6 @@ import {
   thisWeekStart,
   type WeekSummary,
 } from "@/lib/review";
-import { HABIT_ORDER } from "@/lib/today";
 import type { WeeklyReview } from "@/lib/types";
 
 export default function ReviewPage() {
@@ -120,15 +119,6 @@ export default function ReviewPage() {
             sub={`${summary.coldCallsPerWeekday}/weekday`}
           />
           <StatCard
-            label="Lift sessions"
-            value={`AM ${summary.amLifts} / PM ${summary.pmLifts}`}
-          />
-          <StatCard label="Plunges" value={summary.plunges} />
-          <StatCard
-            label="Bible"
-            value={`AM ${summary.bibleAm} / PM ${summary.biblePm}`}
-          />
-          <StatCard
             label="Avg sleep"
             value={summary.avgSleepHours}
             suffix="hr"
@@ -140,16 +130,22 @@ export default function ReviewPage() {
         <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted">
           Habit completion
         </h2>
-        <div className="rounded-2xl border border-border bg-surface px-5 py-4 space-y-2">
-          {HABIT_ORDER.map(({ key, label }) => (
-            <HabitBar
-              key={key}
-              label={label}
-              count={summary.habitCompletion[key]}
-              total={7}
-            />
-          ))}
-        </div>
+        {summary.habits.length === 0 ? (
+          <p className="text-[13px] text-muted">
+            No habits configured. Add some in Settings.
+          </p>
+        ) : (
+          <div className="rounded-2xl border border-border bg-surface px-5 py-4 space-y-2">
+            {summary.habits.map((habit) => (
+              <HabitBar
+                key={habit.id}
+                label={habit.label}
+                count={summary.habitCompletion[habit.id] ?? 0}
+                total={7}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="space-y-4">

@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Check, X } from "lucide-react";
 import { useEffect } from "react";
 import { format, parseISO } from "date-fns";
-import { HABIT_ORDER } from "@/lib/today";
+import { getHabits } from "@/lib/storage";
 import type { DailyLog } from "@/lib/types";
 
 interface DaySheetProps {
@@ -15,6 +15,7 @@ interface DaySheetProps {
 
 export function DaySheet({ date, log, onClose }: DaySheetProps) {
   const open = date !== null;
+  const habits = getHabits();
 
   useEffect(() => {
     if (!open) return;
@@ -84,11 +85,11 @@ export function DaySheet({ date, log, onClose }: DaySheetProps) {
                 <>
                   <Section title="Habits">
                     <ul className="space-y-2">
-                      {HABIT_ORDER.map(({ key, label }) => {
-                        const checked = log.habits[key];
+                      {habits.map(({ id, label }) => {
+                        const checked = log.habits[id];
                         return (
                           <li
-                            key={key}
+                            key={id}
                             className="flex items-center gap-3 text-[14px]"
                           >
                             <span

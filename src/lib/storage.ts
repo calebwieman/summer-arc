@@ -1,8 +1,10 @@
 import { eachDayOfInterval, format, parseISO } from "date-fns";
-import type { DailyLog, WeeklyReview } from "./types";
+import { DEFAULT_HABITS } from "./today";
+import type { DailyLog, HabitDef, WeeklyReview } from "./types";
 
 const DAILY_PREFIX = "summer:daily:";
 const WEEKLY_PREFIX = "summer:weekly:";
+const HABITS_KEY = "summer:habits";
 
 function dailyKey(date: string) {
   return `${DAILY_PREFIX}${date}`;
@@ -69,11 +71,35 @@ export function saveWeeklyReview(review: WeeklyReview): void {
   write(weeklyKey(review.weekStart), review);
 }
 
+function isValidHabitList(value: unknown): value is HabitDef[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (h) =>
+        h &&
+        typeof h === "object" &&
+        typeof (h as HabitDef).id === "string" &&
+        typeof (h as HabitDef).label === "string",
+    )
+  );
+}
+
+export function getHabits(): HabitDef[] {
+  const stored = read<HabitDef[]>(HABITS_KEY);
+  if (isValidHabitList(stored) && stored.length > 0) return stored;
+  return DEFAULT_HABITS;
+}
+
+export function saveHabits(habits: HabitDef[]): void {
+  write(HABITS_KEY, habits);
+}
+
 export interface BackupBundle {
   schema: 1;
   exportedAt: string;
   daily: Record<string, DailyLog>;
   weekly: Record<string, WeeklyReview>;
+  habits?: HabitDef[];
 }
 
 export function exportBackup(): BackupBundle {
@@ -93,7 +119,13 @@ export function exportBackup(): BackupBundle {
       if (review) weekly[review.weekStart] = review;
     }
   }
-  return { schema: 1, exportedAt: new Date().toISOString(), daily, weekly };
+  return {
+    schema: 1,
+    exportedAt: new Date().toISOString(),
+    daily,
+    weekly,
+    habits: getHabits(),
+  };
 }
 
 export function importBackup(
@@ -106,6 +138,10 @@ export function importBackup(
   if (!b.daily || typeof b.daily !== "object") throw new Error("Invalid backup file");
 
   if (!merge) clearAllLogs();
+
+  if (isValidHabitList(b.habits) && b.habits.length > 0) {
+    saveHabits(b.habits);
+  }
 
   let dailyCount = 0;
   for (const [date, log] of Object.entries(b.daily)) {

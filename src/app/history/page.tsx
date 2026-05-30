@@ -33,8 +33,7 @@ export default function HistoryPage() {
   const [stats, setStats] = useState<MonthStats>({
     miles: 0,
     coldCalls: 0,
-    plunges: 0,
-    bibleDays: 0,
+    habitCheckins: 0,
   });
 
   useEffect(() => {
@@ -124,14 +123,9 @@ export default function HistoryPage() {
           </div>
           <p className="text-[13px] text-muted">
             <span className="text-foreground tabular-nums">
-              {stats.plunges}
+              {stats.habitCheckins}
             </span>{" "}
-            plunges
-            <span className="mx-2 text-border">•</span>
-            <span className="text-foreground tabular-nums">
-              {stats.bibleDays}
-            </span>{" "}
-            Bible days this month
+            habit check-ins this month
           </p>
         </section>
 

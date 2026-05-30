@@ -1,13 +1,11 @@
-export interface DailyHabits {
-  run: boolean;
-  amLift: boolean;
-  plunge: boolean;
-  bibleAm: boolean;
-  noPhoneBeforeBible: boolean;
-  pmLift: boolean;
-  bibleEvening: boolean;
-  sleepBy10: boolean;
+/** A user-defined habit. `id` is stable and used as the key in DailyLog.habits. */
+export interface HabitDef {
+  id: string;
+  label: string;
 }
+
+/** Completion map keyed by HabitDef.id. */
+export type DailyHabits = Record<string, boolean>;
 
 export interface DailyLog {
   date: string;

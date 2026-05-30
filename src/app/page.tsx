@@ -1,20 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import { Flame, Minus, Plus } from "lucide-react";
 import { HabitRow } from "@/components/today/habit-row";
 import { CollapseCard } from "@/components/today/collapse-card";
 import { ProgressRing } from "@/components/today/progress-ring";
-import { getDailyLog, saveDailyLog } from "@/lib/storage";
+import { getDailyLog, getHabits, saveDailyLog } from "@/lib/storage";
 import { currentStreak, recentSleepMedian } from "@/lib/stats";
 import {
-  HABIT_ORDER,
+  DEFAULT_HABITS,
   formatHeaderDate,
   getTodayString,
   makeEmptyLog,
 } from "@/lib/today";
-import type { DailyHabits, DailyLog } from "@/lib/types";
+import type { DailyLog, HabitDef } from "@/lib/types";
 
 declare global {
   interface Navigator {
@@ -23,38 +24,31 @@ declare global {
   }
 }
 
-const HABIT_KEYS = new Set<keyof DailyHabits>([
-  "run",
-  "amLift",
-  "plunge",
-  "bibleAm",
-  "noPhoneBeforeBible",
-  "pmLift",
-  "bibleEvening",
-  "sleepBy10",
-]);
-
 export default function HomePage() {
   const [log, setLog] = useState<DailyLog | null>(null);
+  const [habits, setHabits] = useState<HabitDef[]>(DEFAULT_HABITS);
   const [streak, setStreak] = useState(0);
   const [sleepSuggestion, setSleepSuggestion] = useState(0);
 
   useEffect(() => {
     const loadToday = () => {
       const today = getTodayString();
+      const habitList = getHabits();
+      setHabits(habitList);
       setLog((prev) => {
         if (prev && prev.date === today) return prev;
-        const fresh = getDailyLog(today) ?? makeEmptyLog(today);
+        const fresh = getDailyLog(today) ?? makeEmptyLog(today, habitList);
         // Apply ?check=habit1,habit2 from URL (Apple Shortcuts entry point).
         const params = new URLSearchParams(window.location.search);
         const checkParam = params.get("check");
         if (checkParam) {
           const requested = checkParam.split(",").map((s) => s.trim());
+          const validIds = new Set(habitList.map((h) => h.id));
           const next = { ...fresh, habits: { ...fresh.habits } };
           let changed = false;
           for (const key of requested) {
-            if (HABIT_KEYS.has(key as keyof DailyHabits) && !next.habits[key as keyof DailyHabits]) {
-              next.habits[key as keyof DailyHabits] = true;
+            if (validIds.has(key) && !next.habits[key]) {
+              next.habits[key] = true;
               changed = true;
             }
           }
@@ -92,8 +86,9 @@ export default function HomePage() {
   }, []);
 
   const checkedCount = useMemo(
-    () => (log ? Object.values(log.habits).filter(Boolean).length : 0),
-    [log],
+    () =>
+      log ? habits.reduce((n, h) => (log.habits[h.id] ? n + 1 : n), 0) : 0,
+    [log, habits],
   );
 
   // Live app badge — visible without opening the app fully.
@@ -121,7 +116,7 @@ export default function HomePage() {
     });
   };
 
-  const toggleHabit = (key: keyof DailyLog["habits"]) => {
+  const toggleHabit = (key: string) => {
     setLog((prev) => {
       if (!prev) return prev;
       const next: DailyLog = {
@@ -175,7 +170,7 @@ export default function HomePage() {
             </span>
           ) : null}
         </div>
-        <ProgressRing count={checkedCount} total={8} />
+        <ProgressRing count={checkedCount} total={habits.length} />
       </header>
 
       {/* 2. Top 3 priorities */}
@@ -206,16 +201,28 @@ export default function HomePage() {
         <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted px-5">
           Habits
         </h2>
-        <div className="rounded-2xl border border-border bg-surface py-1.5">
-          {HABIT_ORDER.map(({ key, label }) => (
-            <HabitRow
-              key={key}
-              label={label}
-              checked={log.habits[key]}
-              onToggle={() => toggleHabit(key)}
-            />
-          ))}
-        </div>
+        {habits.length === 0 ? (
+          <div className="rounded-2xl border border-border bg-surface px-5 py-6 text-center">
+            <p className="text-[14px] text-muted">
+              No habits yet. Add them in{" "}
+              <Link href="/settings" className="text-accent underline">
+                Settings
+              </Link>
+              .
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-border bg-surface py-1.5">
+            {habits.map(({ id, label }) => (
+              <HabitRow
+                key={id}
+                label={label}
+                checked={!!log.habits[id]}
+                onToggle={() => toggleHabit(id)}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* 4. Cold calls */}

@@ -6,17 +6,24 @@ import {
   startOfMonth,
   subDays,
 } from "date-fns";
-import { getAllDailyLogs, getDailyLog, getDateRange } from "./storage";
+import { getAllDailyLogs, getDailyLog, getDateRange, getHabits } from "./storage";
 import { getTodayString } from "./today";
-import type { DailyLog } from "./types";
+import type { DailyLog, HabitDef } from "./types";
 
-export const STREAK_THRESHOLD = 6;
+/** A day counts toward a streak when ~75% of the active habits are done. */
+export function streakThreshold(habitCount: number): number {
+  return Math.max(1, Math.ceil(habitCount * 0.75));
+}
 
-export function countCheckedHabits(log: DailyLog): number {
-  return Object.values(log.habits).filter(Boolean).length;
+/** Number of currently-active habits checked in a log. */
+export function countCheckedHabits(log: DailyLog, habits?: HabitDef[]): number {
+  const list = habits ?? getHabits();
+  return list.reduce((n, h) => (log.habits[h.id] ? n + 1 : n), 0);
 }
 
 export function currentStreak(): number {
+  const habits = getHabits();
+  const threshold = streakThreshold(habits.length);
   let streak = 0;
   const todayStr = getTodayString();
   let cursor = parseISO(todayStr);
@@ -25,9 +32,9 @@ export function currentStreak(): number {
   while (true) {
     const dateStr = format(cursor, "yyyy-MM-dd");
     const log = getDailyLog(dateStr);
-    const count = log ? countCheckedHabits(log) : 0;
+    const count = log ? countCheckedHabits(log, habits) : 0;
 
-    if (count >= STREAK_THRESHOLD) {
+    if (count >= threshold) {
       streak++;
     } else if (!isToday) {
       break;
@@ -45,15 +52,17 @@ export function bestStreak(): number {
   const logs = getAllDailyLogs();
   if (logs.length === 0) return 0;
 
+  const habits = getHabits();
+  const threshold = streakThreshold(habits.length);
   let best = 0;
   let current = 0;
   let prevDate: Date | null = null;
 
   for (const log of logs) {
     const date = parseISO(log.date);
-    const count = countCheckedHabits(log);
+    const count = countCheckedHabits(log, habits);
 
-    if (count >= STREAK_THRESHOLD) {
+    if (count >= threshold) {
       const consecutive =
         prevDate &&
         format(subDays(date, 1), "yyyy-MM-dd") === format(prevDate, "yyyy-MM-dd");
@@ -72,8 +81,7 @@ export function bestStreak(): number {
 export interface MonthStats {
   miles: number;
   coldCalls: number;
-  plunges: number;
-  bibleDays: number;
+  habitCheckins: number;
 }
 
 export function monthStats(monthDate: Date): MonthStats {
@@ -82,6 +90,7 @@ export function monthStats(monthDate: Date): MonthStats {
   const todayStr = getTodayString();
   const today = parseISO(todayStr);
   const cappedEnd = isBefore(today, end) ? today : end;
+  const habits = getHabits();
 
   const logs = getDateRange(
     format(start, "yyyy-MM-dd"),
@@ -91,9 +100,7 @@ export function monthStats(monthDate: Date): MonthStats {
   return {
     miles: round1(logs.reduce((sum, l) => sum + (l.runMiles || 0), 0)),
     coldCalls: logs.reduce((sum, l) => sum + (l.coldCalls || 0), 0),
-    plunges: logs.filter((l) => l.habits.plunge).length,
-    bibleDays: logs.filter((l) => l.habits.bibleAm || l.habits.bibleEvening)
-      .length,
+    habitCheckins: logs.reduce((sum, l) => sum + countCheckedHabits(l, habits), 0),
   };
 }
 

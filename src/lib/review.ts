@@ -7,20 +7,17 @@ import {
   startOfWeek,
   subDays,
 } from "date-fns";
-import { getDateRange } from "./storage";
-import type { DailyHabits, WeeklyReview } from "./types";
+import { getDateRange, getHabits } from "./storage";
+import type { HabitDef, WeeklyReview } from "./types";
 
 export interface WeekSummary {
   miles: number;
-  amLifts: number;
-  pmLifts: number;
   coldCallsTotal: number;
   coldCallsPerWeekday: number;
-  plunges: number;
-  bibleAm: number;
-  biblePm: number;
   avgSleepHours: number;
-  habitCompletion: Record<keyof DailyHabits, number>;
+  habits: HabitDef[];
+  /** Completion count per habit id, out of the days logged that week. */
+  habitCompletion: Record<string, number>;
 }
 
 export function thisWeekStart(today: Date): Date {
@@ -57,36 +54,20 @@ export function makeEmptyReview(weekStart: string): WeeklyReview {
   };
 }
 
-const ZERO_HABIT_COUNTS: Record<keyof DailyHabits, number> = {
-  run: 0,
-  amLift: 0,
-  plunge: 0,
-  bibleAm: 0,
-  noPhoneBeforeBible: 0,
-  pmLift: 0,
-  bibleEvening: 0,
-  sleepBy10: 0,
-};
-
 export function summarizeWeek(weekStart: Date): WeekSummary {
   const end = weekEndOf(weekStart);
   const logs = getDateRange(
     format(weekStart, "yyyy-MM-dd"),
     format(end, "yyyy-MM-dd"),
   );
+  const habits = getHabits();
 
   let miles = 0;
-  let amLifts = 0;
-  let pmLifts = 0;
   let coldCallsTotal = 0;
   let weekdayColdCalls = 0;
-  let plunges = 0;
-  let bibleAm = 0;
-  let biblePm = 0;
   const sleeps: number[] = [];
-  const habitCompletion: Record<keyof DailyHabits, number> = {
-    ...ZERO_HABIT_COUNTS,
-  };
+  const habitCompletion: Record<string, number> = {};
+  for (const habit of habits) habitCompletion[habit.id] = 0;
 
   for (const log of logs) {
     miles += log.runMiles || 0;
@@ -97,17 +78,11 @@ export function summarizeWeek(weekStart: Date): WeekSummary {
       weekdayColdCalls += log.coldCalls || 0;
     }
 
-    if (log.habits.amLift) amLifts++;
-    if (log.habits.pmLift) pmLifts++;
-    if (log.habits.plunge) plunges++;
-    if (log.habits.bibleAm) bibleAm++;
-    if (log.habits.bibleEvening) biblePm++;
-
     if (log.sleepHours > 0) sleeps.push(log.sleepHours);
 
-    (Object.keys(habitCompletion) as Array<keyof DailyHabits>).forEach((k) => {
-      if (log.habits[k]) habitCompletion[k]++;
-    });
+    for (const habit of habits) {
+      if (log.habits[habit.id]) habitCompletion[habit.id]++;
+    }
   }
 
   const avgSleepHours =
@@ -117,14 +92,10 @@ export function summarizeWeek(weekStart: Date): WeekSummary {
 
   return {
     miles: round1(miles),
-    amLifts,
-    pmLifts,
     coldCallsTotal,
     coldCallsPerWeekday: round1(weekdayColdCalls / 5),
-    plunges,
-    bibleAm,
-    biblePm,
     avgSleepHours,
+    habits,
     habitCompletion,
   };
 }

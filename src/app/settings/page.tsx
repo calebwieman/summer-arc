@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Download, Trash2, Upload } from "lucide-react";
+import { HabitEditor } from "@/components/settings/habit-editor";
 import {
   clearAllLogs,
   exportBackup,
@@ -73,11 +74,21 @@ export default function SettingsPage() {
           Settings
         </p>
         <h1 className="mt-1.5 text-[28px] font-semibold tracking-tight text-foreground">
-          Backup &amp; data
+          Settings
         </h1>
       </header>
 
+      <section className="space-y-3">
+        <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted">
+          Habits
+        </h2>
+        <HabitEditor />
+      </section>
+
       <section className="space-y-4">
+        <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted">
+          Backup &amp; data
+        </h2>
         <p className="text-[13px] leading-6 text-muted">
           Your logs live in this device&rsquo;s storage only — there&rsquo;s no
           cloud sync. Export a backup every so often. If you ever clear Safari
