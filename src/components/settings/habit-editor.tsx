@@ -27,6 +27,16 @@ export function HabitEditor({ onChange }: { onChange?: () => void }) {
   }
 
   function remove(id: string) {
+    const habit = habits.find((h) => h.id === id);
+    const name = habit?.label?.trim();
+    if (
+      name &&
+      !window.confirm(
+        `Remove "${name}"? It stops showing on Today. Days you've already logged keep their data.`,
+      )
+    ) {
+      return;
+    }
     commit(habits.filter((h) => h.id !== id));
   }
 
