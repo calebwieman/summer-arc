@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   addMonths,
   format,
   isSameMonth,
+  parseISO,
   startOfMonth,
   subMonths,
 } from "date-fns";
@@ -12,7 +13,9 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { CalendarGrid } from "@/components/history/calendar-grid";
 import { DaySheet } from "@/components/history/day-sheet";
+import { DaySearch } from "@/components/history/day-search";
 import { StatsCard } from "@/components/history/stats-card";
+import { YearlyHeatmap } from "@/components/history/yearly-heatmap";
 import { getDailyLog } from "@/lib/storage";
 import {
   bestStreak,
@@ -28,6 +31,7 @@ export default function HistoryPage() {
   const [monthDate, setMonthDate] = useState<Date>(() => new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<DailyLog | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const [streaks, setStreaks] = useState({ current: 0, best: 0 });
   const [stats, setStats] = useState<MonthStats>({
@@ -39,6 +43,15 @@ export default function HistoryPage() {
   useEffect(() => {
     setMounted(true);
     setMonthDate(startOfMonth(new Date()));
+    // Handle ?d=YYYY-MM-DD deep link (used by Today "Edit yesterday").
+    const params = new URLSearchParams(window.location.search);
+    const d = params.get("d");
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      setSelectedDate(d);
+      setSelectedLog(getDailyLog(d));
+      setMonthDate(startOfMonth(parseISO(d)));
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
@@ -57,7 +70,7 @@ export default function HistoryPage() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", refresh);
     };
-  }, [mounted, monthDate, selectedDate]);
+  }, [mounted, monthDate, refreshTick]);
 
   const handleSelectDay = (date: string) => {
     setSelectedDate(date);
@@ -69,8 +82,17 @@ export default function HistoryPage() {
     setSelectedLog(null);
   };
 
+  const handleDayChange = () => {
+    setRefreshTick((t) => t + 1);
+  };
+
   const today = new Date();
   const isCurrentMonth = isSameMonth(monthDate, today);
+  const calendarKey = useMemo(
+    () => `${format(monthDate, "yyyy-MM")}-${refreshTick}`,
+    [monthDate, refreshTick],
+  );
+  const heatmapKey = useMemo(() => `heatmap-${refreshTick}`, [refreshTick]);
 
   if (!mounted) {
     return <main className="min-h-dvh" aria-hidden />;
@@ -93,17 +115,20 @@ export default function HistoryPage() {
               {format(monthDate, "MMMM yyyy")}
             </h1>
           </div>
-          {!isCurrentMonth ? (
-            <motion.button
-              type="button"
-              onClick={() => setMonthDate(startOfMonth(new Date()))}
-              whileTap={{ scale: 0.95 }}
-              transition={{ type: "spring", stiffness: 500, damping: 25 }}
-              className="mt-2 flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 min-h-9 text-[12px] text-foreground hover:border-accent/60 transition-colors"
-            >
-              Today
-            </motion.button>
-          ) : null}
+          <div className="flex items-center gap-2 mt-1">
+            <DaySearch onSelectDay={handleSelectDay} />
+            {!isCurrentMonth ? (
+              <motion.button
+                type="button"
+                onClick={() => setMonthDate(startOfMonth(new Date()))}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 min-h-9 text-[12px] text-foreground hover:border-accent/60 transition-colors"
+              >
+                Today
+              </motion.button>
+            ) : null}
+          </div>
         </header>
 
         <section className="space-y-3">
@@ -129,6 +154,13 @@ export default function HistoryPage() {
           </p>
         </section>
 
+        <section className="space-y-3">
+          <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted">
+            Last 26 weeks
+          </h2>
+          <YearlyHeatmap key={heatmapKey} onSelectDay={handleSelectDay} />
+        </section>
+
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <MonthArrow
@@ -146,7 +178,7 @@ export default function HistoryPage() {
           </div>
 
           <CalendarGrid
-            key={format(monthDate, "yyyy-MM")}
+            key={calendarKey}
             monthDate={monthDate}
             onSelectDay={handleSelectDay}
           />
@@ -159,6 +191,7 @@ export default function HistoryPage() {
         date={selectedDate}
         log={selectedLog}
         onClose={handleClose}
+        onChange={handleDayChange}
       />
     </>
   );

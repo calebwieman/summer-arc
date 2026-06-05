@@ -3,7 +3,7 @@
 //  - Navigation (HTML routes): network-first, fall back to cache, then "/"
 //  - Static assets (same-origin GET): stale-while-revalidate
 //  - Bump CACHE_NAME to force-refresh clients
-const CACHE_NAME = "summer-cache-v3";
+const CACHE_NAME = "summer-cache-v4";
 const APP_SHELL = [
   "/",
   "/history",
@@ -12,6 +12,7 @@ const APP_SHELL = [
   "/manifest.json",
   "/icon-192.png",
   "/icon-512.png",
+  "/verses.json",
 ];
 
 self.addEventListener("install", (event) => {

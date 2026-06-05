@@ -6,9 +6,10 @@ interface HabitBarProps {
   label: string;
   count: number;
   total: number;
+  delta?: number;
 }
 
-export function HabitBar({ label, count, total }: HabitBarProps) {
+export function HabitBar({ label, count, total, delta }: HabitBarProps) {
   const pct = total === 0 ? 0 : Math.min(100, (count / total) * 100);
   const complete = count >= total && total > 0;
 
@@ -17,7 +18,17 @@ export function HabitBar({ label, count, total }: HabitBarProps) {
       <span className="flex-1 text-[14px] tracking-tight text-foreground">
         {label}
       </span>
-      <div className="h-1.5 w-24 rounded-full bg-border overflow-hidden">
+      {delta !== undefined && delta !== 0 ? (
+        <span
+          className={`text-[11px] tabular-nums w-8 text-right ${
+            delta > 0 ? "text-accent" : "text-muted"
+          }`}
+        >
+          {delta > 0 ? "+" : ""}
+          {delta}
+        </span>
+      ) : null}
+      <div className="h-1.5 w-20 rounded-full bg-border overflow-hidden">
         <motion.div
           className={`h-full rounded-full ${complete ? "bg-accent" : "bg-accent/70"}`}
           initial={{ width: 0 }}

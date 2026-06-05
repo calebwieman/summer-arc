@@ -1,8 +1,14 @@
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import type { DailyHabits, DailyLog, HabitDef } from "./types";
 
 export function getTodayString(): string {
   return format(new Date(), "yyyy-MM-dd");
+}
+
+export function getYesterdayString(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return format(d, "yyyy-MM-dd");
 }
 
 export function formatHeaderDate(date: string): string {
@@ -30,6 +36,18 @@ export function createHabitId(): string {
     return `h_${crypto.randomUUID().slice(0, 8)}`;
   }
   return `h_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** True when a habit is scheduled for the given weekday (0=Sun..6=Sat). */
+export function isHabitScheduled(habit: HabitDef, weekday: number): boolean {
+  if (!habit.weekdays || habit.weekdays.length === 0) return true;
+  return habit.weekdays.includes(weekday);
+}
+
+/** Filter the habit list down to those scheduled for the given ISO date. */
+export function habitsForDate(habits: HabitDef[], date: string): HabitDef[] {
+  const dow = parseISO(date).getDay();
+  return habits.filter((h) => isHabitScheduled(h, dow));
 }
 
 function emptyHabits(habits: HabitDef[]): DailyHabits {

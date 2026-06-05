@@ -5,6 +5,8 @@ import type { DailyLog, HabitDef, WeeklyReview } from "./types";
 const DAILY_PREFIX = "summer:daily:";
 const WEEKLY_PREFIX = "summer:weekly:";
 const HABITS_KEY = "summer:habits";
+const LAST_EXPORT_KEY = "summer:last-export";
+const VERSE_ENABLED_KEY = "summer:verse-enabled";
 
 function dailyKey(date: string) {
   return `${DAILY_PREFIX}${date}`;
@@ -94,8 +96,31 @@ export function saveHabits(habits: HabitDef[]): void {
   write(HABITS_KEY, habits);
 }
 
+/** Last-export timestamp (ISO). Updated whenever the user exports JSON or CSV. */
+export function getLastExportAt(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(LAST_EXPORT_KEY);
+}
+
+export function setLastExportAt(iso: string = new Date().toISOString()): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(LAST_EXPORT_KEY, iso);
+}
+
+export function getVerseEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  const raw = window.localStorage.getItem(VERSE_ENABLED_KEY);
+  if (raw === null) return true;
+  return raw === "true";
+}
+
+export function setVerseEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(VERSE_ENABLED_KEY, String(enabled));
+}
+
 export interface BackupBundle {
-  schema: 1;
+  schema: 1 | 2;
   exportedAt: string;
   daily: Record<string, DailyLog>;
   weekly: Record<string, WeeklyReview>;
@@ -106,7 +131,7 @@ export function exportBackup(): BackupBundle {
   const daily: Record<string, DailyLog> = {};
   const weekly: Record<string, WeeklyReview> = {};
   if (typeof window === "undefined") {
-    return { schema: 1, exportedAt: new Date().toISOString(), daily, weekly };
+    return { schema: 2, exportedAt: new Date().toISOString(), daily, weekly };
   }
   for (let i = 0; i < window.localStorage.length; i++) {
     const key = window.localStorage.key(i);
@@ -120,7 +145,7 @@ export function exportBackup(): BackupBundle {
     }
   }
   return {
-    schema: 1,
+    schema: 2,
     exportedAt: new Date().toISOString(),
     daily,
     weekly,
@@ -174,4 +199,57 @@ export function clearAllLogs(): void {
     }
   }
   for (const key of keysToRemove) window.localStorage.removeItem(key);
+}
+
+/** Build a CSV of all daily logs. Habit columns use current habit labels. */
+export function exportCsv(): string {
+  const habits = getHabits();
+  const logs = getAllDailyLogs();
+  const cols = [
+    "date",
+    "mood",
+    "rest_day",
+    "cold_calls",
+    "run_miles",
+    "plunge_minutes",
+    "sleep_hours",
+    "bible_reading",
+    "priority_1",
+    "priority_2",
+    "priority_3",
+    "win",
+    "lesson",
+    "run_notes",
+    "am_lift_notes",
+    "pm_lift_notes",
+    ...habits.map((h) => `habit:${h.label}`),
+  ];
+  const rows = logs.map((log) => [
+    log.date,
+    log.mood ?? "",
+    log.restDay ? "1" : "",
+    log.coldCalls || "",
+    log.runMiles || "",
+    log.plungeMinutes || "",
+    log.sleepHours || "",
+    log.bibleReading ?? "",
+    log.top3Priorities[0] ?? "",
+    log.top3Priorities[1] ?? "",
+    log.top3Priorities[2] ?? "",
+    log.win ?? "",
+    log.lesson ?? "",
+    log.runNotes ?? "",
+    log.amLiftNotes ?? "",
+    log.pmLiftNotes ?? "",
+    ...habits.map((h) => (log.habits[h.id] ? "1" : "")),
+  ]);
+  return [cols, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
+function csvCell(value: string | number): string {
+  const s = String(value);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
 }

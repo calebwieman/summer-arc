@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { addDays, format, isAfter, subDays } from "date-fns";
-import { ChevronLeft, ChevronRight, Lock } from "lucide-react";
+import { ChevronLeft, ChevronRight, ClipboardCopy, Lock } from "lucide-react";
 import { motion } from "framer-motion";
 import { HabitBar } from "@/components/review/habit-bar";
 import { getWeeklyReview, saveWeeklyReview } from "@/lib/storage";
@@ -13,6 +13,7 @@ import {
   mostRecentCompletedWeekStart,
   summarizeWeek,
   thisWeekStart,
+  weekToMarkdown,
   type WeekSummary,
 } from "@/lib/review";
 import type { WeeklyReview } from "@/lib/types";
@@ -22,6 +23,7 @@ export default function ReviewPage() {
   const [weekStart, setWeekStart] = useState<Date>(() => new Date());
   const [review, setReview] = useState<WeeklyReview | null>(null);
   const [summary, setSummary] = useState<WeekSummary | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -68,6 +70,17 @@ export default function ReviewPage() {
     });
   };
 
+  const copyMarkdown = async () => {
+    try {
+      const md = weekToMarkdown(weekStart);
+      await navigator.clipboard.writeText(md);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+
   return (
     <motion.main
       initial={{ opacity: 0, y: 4 }}
@@ -75,13 +88,24 @@ export default function ReviewPage() {
       transition={{ duration: 0.2 }}
       className="mx-auto max-w-md px-5 pt-10 pb-32 space-y-8"
     >
-      <header>
-        <p className="text-[13px] uppercase tracking-[0.18em] text-muted">
-          Review
-        </p>
-        <h1 className="mt-1.5 text-[28px] font-semibold tracking-tight text-foreground">
-          Weekly review
-        </h1>
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[13px] uppercase tracking-[0.18em] text-muted">
+            Review
+          </p>
+          <h1 className="mt-1.5 text-[28px] font-semibold tracking-tight text-foreground">
+            Weekly review
+          </h1>
+        </div>
+        <button
+          type="button"
+          onClick={copyMarkdown}
+          className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 min-h-9 text-[12px] text-foreground hover:border-accent/60 transition-colors"
+          aria-label="Copy week as Markdown"
+        >
+          <ClipboardCopy className="h-3.5 w-3.5" />
+          {copied ? "Copied" : "Markdown"}
+        </button>
       </header>
 
       <section className="flex items-center justify-between">
@@ -112,16 +136,23 @@ export default function ReviewPage() {
           Summary
         </h2>
         <div className="grid grid-cols-2 gap-2">
-          <StatCard label="Miles" value={summary.miles} suffix="mi" />
+          <StatCard
+            label="Miles"
+            value={summary.miles}
+            suffix="mi"
+            delta={round1(summary.miles - summary.prev.miles)}
+          />
           <StatCard
             label="Cold calls"
             value={summary.coldCallsTotal}
             sub={`${summary.coldCallsPerWeekday}/weekday`}
+            delta={summary.coldCallsTotal - summary.prev.coldCallsTotal}
           />
           <StatCard
             label="Avg sleep"
             value={summary.avgSleepHours}
             suffix="hr"
+            delta={round1(summary.avgSleepHours - summary.prev.avgSleepHours)}
           />
         </div>
       </section>
@@ -136,14 +167,20 @@ export default function ReviewPage() {
           </p>
         ) : (
           <div className="rounded-2xl border border-border bg-surface px-5 py-4 space-y-2">
-            {summary.habits.map((habit) => (
-              <HabitBar
-                key={habit.id}
-                label={habit.label}
-                count={summary.habitCompletion[habit.id] ?? 0}
-                total={7}
-              />
-            ))}
+            {summary.habits.map((habit) => {
+              const total = summary.habitScheduled[habit.id] || 0;
+              const count = summary.habitCompletion[habit.id] ?? 0;
+              const prevCount = summary.prev.habitCompletion[habit.id] ?? 0;
+              return (
+                <HabitBar
+                  key={habit.id}
+                  label={habit.label}
+                  count={count}
+                  total={Math.max(total, habit.weeklyTarget ?? 0)}
+                  delta={count - prevCount}
+                />
+              );
+            })}
           </div>
         )}
       </section>
@@ -186,6 +223,10 @@ export default function ReviewPage() {
   );
 }
 
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
 function WeekArrow({
   direction,
   onClick,
@@ -219,18 +260,32 @@ function StatCard({
   value,
   suffix,
   sub,
+  delta,
 }: {
   label: string;
   value: string | number;
   suffix?: string;
   sub?: string;
+  delta?: number;
 }) {
   const isLong = typeof value === "string" && value.length > 6;
   return (
     <div className="rounded-xl border border-border bg-surface p-3 flex flex-col gap-1">
-      <span className="text-[11px] uppercase tracking-[0.12em] text-muted">
-        {label}
-      </span>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] uppercase tracking-[0.12em] text-muted">
+          {label}
+        </span>
+        {delta !== undefined && delta !== 0 ? (
+          <span
+            className={`text-[10px] tabular-nums ${
+              delta > 0 ? "text-accent" : "text-muted"
+            }`}
+          >
+            {delta > 0 ? "+" : ""}
+            {delta}
+          </span>
+        ) : null}
+      </div>
       <span
         className={`font-semibold tracking-tight text-foreground tabular-nums leading-none ${
           isLong ? "text-[16px]" : "text-[22px]"
