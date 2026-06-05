@@ -12,9 +12,10 @@ import {
   startOfWeek,
 } from "date-fns";
 import { motion } from "framer-motion";
+import { Bed } from "lucide-react";
 import { getDailyLog, getHabits } from "@/lib/storage";
-import { countCheckedHabits } from "@/lib/stats";
-import { getTodayString } from "@/lib/today";
+import { countScheduledChecked } from "@/lib/stats";
+import { getTodayString, habitsForDate } from "@/lib/today";
 
 interface CalendarGridProps {
   monthDate: Date;
@@ -45,7 +46,6 @@ export function CalendarGrid({ monthDate, onSelectDay }: CalendarGridProps) {
   const days = eachDayOfInterval({ start: gridStart, end: gridEnd });
   const today = parseISO(getTodayString());
   const habits = getHabits();
-  const habitCount = habits.length;
 
   return (
     <div className="space-y-2">
@@ -67,8 +67,10 @@ export function CalendarGrid({ monthDate, onSelectDay }: CalendarGridProps) {
           const isFuture = isAfter(day, today);
           const isToday = dateStr === getTodayString();
           const log = inMonth && !isFuture ? getDailyLog(dateStr) : null;
-          const count = log ? countCheckedHabits(log, habits) : 0;
+          const scheduled = habitsForDate(habits, dateStr);
+          const count = log ? countScheduledChecked(log, habits) : 0;
           const disabled = !inMonth || isFuture;
+          const restDay = !!log?.restDay;
 
           return (
             <motion.button
@@ -78,17 +80,29 @@ export function CalendarGrid({ monthDate, onSelectDay }: CalendarGridProps) {
               disabled={disabled}
               whileTap={disabled ? undefined : { scale: 0.9 }}
               transition={{ type: "spring", stiffness: 500, damping: 25 }}
-              aria-label={`${format(day, "MMMM d")}, ${count} habits completed`}
-              className={`aspect-square flex items-center justify-center rounded-lg text-[13px] tabular-nums transition-colors ${
+              aria-label={
+                restDay
+                  ? `${format(day, "MMMM d")}, rest day`
+                  : `${format(day, "MMMM d")}, ${count} habits completed`
+              }
+              className={`relative aspect-square flex items-center justify-center rounded-lg text-[13px] tabular-nums transition-colors ${
                 disabled
                   ? "opacity-25 cursor-default border border-transparent text-muted"
-                  : `${bgForCount(count, habitCount)} ${textForCount(
-                      count,
-                      habitCount,
-                    )} ${isToday ? "ring-1 ring-foreground/40" : ""}`
-              }`}
+                  : restDay
+                    ? "border border-dashed border-accent/40 text-muted"
+                    : `${bgForCount(count, scheduled.length)} ${textForCount(
+                        count,
+                        scheduled.length,
+                      )} ${isToday ? "ring-1 ring-foreground/40" : ""}`
+              } ${!disabled && isToday ? "ring-1 ring-foreground/40" : ""}`}
             >
               {format(day, "d")}
+              {restDay ? (
+                <Bed
+                  className="absolute top-0.5 right-0.5 h-2.5 w-2.5 text-accent/70"
+                  aria-hidden
+                />
+              ) : null}
             </motion.button>
           );
         })}

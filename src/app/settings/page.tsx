@@ -1,18 +1,41 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Download, Trash2, Upload } from "lucide-react";
+import { BookOpen, Download, FileText, Trash2, Upload } from "lucide-react";
 import { HabitEditor } from "@/components/settings/habit-editor";
 import {
   clearAllLogs,
   exportBackup,
+  exportCsv,
+  getLastExportAt,
+  getVerseEnabled,
   importBackup,
+  setLastExportAt,
+  setVerseEnabled,
 } from "@/lib/storage";
+
+function formatRelative(iso: string | null): string {
+  if (!iso) return "never";
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms) || ms < 0) return "just now";
+  const days = Math.floor(ms / 86_400_000);
+  if (days < 1) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days} days ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 export default function SettingsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [verse, setVerse] = useState(true);
+  const [lastExport, setLastExport] = useState<string | null>(null);
+
+  useEffect(() => {
+    setVerse(getVerseEnabled());
+    setLastExport(getLastExportAt());
+  }, []);
 
   function flash(message: string) {
     setToast(message);
@@ -31,7 +54,24 @@ export default function SettingsPage() {
     a.download = `summer-backup-${today}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    setLastExportAt();
+    setLastExport(new Date().toISOString());
     flash("Backup downloaded.");
+  }
+
+  function handleExportCsv() {
+    const csv = exportCsv();
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const today = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `summer-${today}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setLastExportAt();
+    setLastExport(new Date().toISOString());
+    flash("CSV downloaded.");
   }
 
   function handleImport(file: File, merge: boolean) {
@@ -62,6 +102,12 @@ export default function SettingsPage() {
     flash("All data erased.");
   }
 
+  function toggleVerse() {
+    const next = !verse;
+    setVerse(next);
+    setVerseEnabled(next);
+  }
+
   return (
     <motion.main
       initial={{ opacity: 0, y: 4 }}
@@ -85,14 +131,49 @@ export default function SettingsPage() {
         <HabitEditor />
       </section>
 
+      <section className="space-y-3">
+        <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted">
+          Display
+        </h2>
+        <button
+          type="button"
+          onClick={toggleVerse}
+          aria-pressed={verse}
+          className="flex w-full items-center justify-between rounded-2xl border border-border bg-surface px-5 py-4 text-left transition-colors hover:border-accent/60"
+        >
+          <span className="flex items-center gap-3">
+            <BookOpen className="h-5 w-5 text-accent" />
+            <span>
+              <span className="block text-[15px] text-foreground">
+                Verse of the day
+              </span>
+              <span className="block text-[12px] text-muted">
+                Show a daily verse above Today.
+              </span>
+            </span>
+          </span>
+          <span
+            className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors ${
+              verse ? "bg-accent" : "bg-border"
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 rounded-full bg-background transition-transform ${
+                verse ? "translate-x-4" : "translate-x-0.5"
+              }`}
+            />
+          </span>
+        </button>
+      </section>
+
       <section className="space-y-4">
         <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted">
           Backup &amp; data
         </h2>
         <p className="text-[13px] leading-6 text-muted">
           Your logs live in this device&rsquo;s storage only — there&rsquo;s no
-          cloud sync. Export a backup every so often. If you ever clear Safari
-          data or reset the phone, the JSON file is the only way back.
+          cloud sync. Export a backup every so often. Last export:{" "}
+          <span className="text-foreground">{formatRelative(lastExport)}</span>.
         </p>
 
         <button
@@ -105,6 +186,18 @@ export default function SettingsPage() {
             <span className="text-[15px] text-foreground">Export backup</span>
           </span>
           <span className="text-[12px] text-muted">JSON</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleExportCsv}
+          className="flex w-full items-center justify-between rounded-2xl border border-border bg-surface px-5 py-4 text-left transition-colors hover:border-accent/60"
+        >
+          <span className="flex items-center gap-3">
+            <FileText className="h-5 w-5 text-accent" />
+            <span className="text-[15px] text-foreground">Export to CSV</span>
+          </span>
+          <span className="text-[12px] text-muted">Spreadsheet</span>
         </button>
 
         <input

@@ -1,15 +1,16 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check } from "lucide-react";
+import { Check, Flame } from "lucide-react";
 
 interface HabitRowProps {
   label: string;
   checked: boolean;
+  streak?: number;
   onToggle: () => void;
 }
 
-export function HabitRow({ label, checked, onToggle }: HabitRowProps) {
+export function HabitRow({ label, checked, streak = 0, onToggle }: HabitRowProps) {
   return (
     <motion.button
       type="button"
@@ -43,6 +44,15 @@ export function HabitRow({ label, checked, onToggle }: HabitRowProps) {
       >
         {label}
       </motion.span>
+      {streak >= 2 ? (
+        <span
+          className="inline-flex items-center gap-0.5 text-[11px] text-accent/80 tabular-nums shrink-0"
+          aria-label={`${streak} day streak`}
+        >
+          <Flame className="h-3 w-3" />
+          {streak}
+        </span>
+      ) : null}
     </motion.button>
   );
 }

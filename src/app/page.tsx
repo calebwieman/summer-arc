@@ -1,18 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { Flame, Minus, Plus } from "lucide-react";
-import { HabitRow } from "@/components/today/habit-row";
-import { CollapseCard } from "@/components/today/collapse-card";
+import { AnimatePresence, motion } from "framer-motion";
+import { Flame, X } from "lucide-react";
+import { DayForm } from "@/components/today/day-form";
+import { PrBanner } from "@/components/today/pr-banner";
 import { ProgressRing } from "@/components/today/progress-ring";
-import { getDailyLog, getHabits, saveDailyLog } from "@/lib/storage";
-import { currentStreak, recentSleepMedian } from "@/lib/stats";
+import { VerseBanner } from "@/components/today/verse-banner";
+import {
+  getDailyLog,
+  getHabits,
+  getLastExportAt,
+  saveDailyLog,
+} from "@/lib/storage";
+import {
+  currentStreak,
+  detectPrs,
+  habitStreak,
+  recentSleepMedian,
+  type PrFlag,
+} from "@/lib/stats";
 import {
   DEFAULT_HABITS,
   formatHeaderDate,
   getTodayString,
+  habitsForDate,
   makeEmptyLog,
 } from "@/lib/today";
 import type { DailyLog, HabitDef } from "@/lib/types";
@@ -24,11 +37,64 @@ declare global {
   }
 }
 
+const BACKUP_NAG_DISMISS_KEY = "summer:backup-nag-dismissed";
+const NAG_AFTER_DAYS = 14;
+const MIN_LOGS_BEFORE_NAG = 7;
+
+function shouldNagBackup(): boolean {
+  if (typeof window === "undefined") return false;
+  const dismissed = window.localStorage.getItem(BACKUP_NAG_DISMISS_KEY);
+  if (dismissed) {
+    const ts = parseInt(dismissed, 10);
+    if (Number.isFinite(ts) && Date.now() - ts < 7 * 86400 * 1000) {
+      return false;
+    }
+  }
+  let logCount = 0;
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const key = window.localStorage.key(i);
+    if (key && key.startsWith("summer:daily:")) logCount++;
+    if (logCount >= MIN_LOGS_BEFORE_NAG) break;
+  }
+  if (logCount < MIN_LOGS_BEFORE_NAG) return false;
+  const last = getLastExportAt();
+  if (!last) return true;
+  const lastMs = Date.parse(last);
+  if (!Number.isFinite(lastMs)) return true;
+  return Date.now() - lastMs > NAG_AFTER_DAYS * 86400 * 1000;
+}
+
 export default function HomePage() {
   const [log, setLog] = useState<DailyLog | null>(null);
   const [habits, setHabits] = useState<HabitDef[]>(DEFAULT_HABITS);
   const [streak, setStreak] = useState(0);
   const [sleepSuggestion, setSleepSuggestion] = useState(0);
+  const [habitStreaks, setHabitStreaks] = useState<Record<string, number>>({});
+  const [prs, setPrs] = useState<PrFlag[]>([]);
+  const [shownPrKinds, setShownPrKinds] = useState<Set<string>>(new Set());
+  const [showBackupNag, setShowBackupNag] = useState(false);
+
+  const todayDate = log?.date ?? getTodayString();
+
+  const visibleHabits = useMemo(
+    () => habitsForDate(habits, todayDate),
+    [habits, todayDate],
+  );
+
+  const checkedCount = useMemo(
+    () =>
+      log
+        ? visibleHabits.reduce((n, h) => (log.habits[h.id] ? n + 1 : n), 0)
+        : 0,
+    [log, visibleHabits],
+  );
+
+  const refreshStreaks = useCallback((list: HabitDef[]) => {
+    const map: Record<string, number> = {};
+    for (const h of list) map[h.id] = habitStreak(h.id);
+    setHabitStreaks(map);
+    setStreak(currentStreak());
+  }, []);
 
   useEffect(() => {
     const loadToday = () => {
@@ -53,20 +119,19 @@ export default function HomePage() {
             }
           }
           if (changed) saveDailyLog(next);
-          // Clean URL so reloads don't re-fire.
           window.history.replaceState({}, "", window.location.pathname);
           return next;
         }
         return fresh;
       });
-      setStreak(currentStreak());
+      refreshStreaks(habitList);
       setSleepSuggestion(recentSleepMedian());
+      setShowBackupNag(shouldNagBackup());
     };
     loadToday();
 
     const onVisibility = () => {
       if (document.visibilityState !== "visible") {
-        // iOS may not fire blur when the user swipes away — commit any pending text edits.
         if (document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
         }
@@ -83,15 +148,9 @@ export default function HomePage() {
       window.removeEventListener("focus", loadToday);
       window.removeEventListener("pagehide", onVisibility);
     };
-  }, []);
+  }, [refreshStreaks]);
 
-  const checkedCount = useMemo(
-    () =>
-      log ? habits.reduce((n, h) => (log.habits[h.id] ? n + 1 : n), 0) : 0,
-    [log, habits],
-  );
-
-  // Live app badge — visible without opening the app fully.
+  // Live app badge
   useEffect(() => {
     if (!log) return;
     if (typeof navigator !== "undefined" && "setAppBadge" in navigator) {
@@ -112,35 +171,31 @@ export default function HomePage() {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
       saveDailyLog(next);
+
+      const fresh = detectPrs(next).filter((p) => !shownPrKinds.has(p.kind));
+      if (fresh.length > 0) {
+        setPrs((existing) => {
+          const seen = new Set(existing.map((p) => p.kind));
+          return [...existing, ...fresh.filter((p) => !seen.has(p.kind))];
+        });
+        setShownPrKinds((s) => {
+          const ns = new Set(s);
+          for (const p of fresh) ns.add(p.kind);
+          return ns;
+        });
+      }
+
+      refreshStreaks(habits);
       return next;
     });
   };
 
-  const toggleHabit = (key: string) => {
-    setLog((prev) => {
-      if (!prev) return prev;
-      const next: DailyLog = {
-        ...prev,
-        habits: { ...prev.habits, [key]: !prev.habits[key] },
-      };
-      saveDailyLog(next);
-      return next;
-    });
-  };
-
-  const setPriority = (index: 0 | 1 | 2, value: string) => {
-    setLog((prev) => {
-      if (!prev) return prev;
-      const top3 = [...prev.top3Priorities] as [string, string, string];
-      top3[index] = value;
-      const next = { ...prev, top3Priorities: top3 };
-      saveDailyLog(next);
-      return next;
-    });
-  };
-
-  const adjustColdCalls = (delta: number) => {
-    update({ coldCalls: Math.max(0, log.coldCalls + delta) });
+  const dismissBackupNag = () => {
+    window.localStorage.setItem(
+      BACKUP_NAG_DISMISS_KEY,
+      String(Date.now()),
+    );
+    setShowBackupNag(false);
   };
 
   return (
@@ -149,9 +204,9 @@ export default function HomePage() {
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      className="mx-auto max-w-md px-5 pb-32 pt-10 space-y-10"
+      className="mx-auto max-w-md px-5 pb-32 pt-10 space-y-8"
     >
-      {/* 1. Date header */}
+      {/* Date header */}
       <header className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[13px] uppercase tracking-[0.18em] text-muted">
@@ -170,290 +225,49 @@ export default function HomePage() {
             </span>
           ) : null}
         </div>
-        <ProgressRing count={checkedCount} total={habits.length} />
+        <ProgressRing count={checkedCount} total={visibleHabits.length} />
       </header>
 
-      {/* 2. Top 3 priorities */}
-      <section className="space-y-3">
-        <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted">
-          Top 3 priorities
-        </h2>
-        <ol className="space-y-2">
-          {[0, 1, 2].map((i) => (
-            <li key={i} className="flex items-center gap-3">
-              <span className="w-5 text-[13px] text-muted tabular-nums">
-                {i + 1}.
-              </span>
-              <input
-                type="text"
-                defaultValue={log.top3Priorities[i]}
-                placeholder="…"
-                onBlur={(e) => setPriority(i as 0 | 1 | 2, e.target.value)}
-                className="flex-1 min-h-11 bg-transparent text-[15px] text-foreground placeholder:text-muted/60 outline-none border-b border-border focus:border-accent/60 transition-colors py-2"
-              />
-            </li>
-          ))}
-        </ol>
-      </section>
+      <VerseBanner date={log.date} />
 
-      {/* 3. Habit checklist */}
-      <section className="space-y-3">
-        <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted px-5">
-          Habits
-        </h2>
-        {habits.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-surface px-5 py-6 text-center">
-            <p className="text-[14px] text-muted">
-              No habits yet. Add them in{" "}
+      <AnimatePresence>
+        {showBackupNag ? (
+          <motion.div
+            key="backup-nag"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="flex items-start gap-3 rounded-2xl border border-border bg-surface px-4 py-3"
+            role="status"
+          >
+            <div className="flex-1 text-[13px] text-foreground">
+              It&rsquo;s been a while since your last backup.{" "}
               <Link href="/settings" className="text-accent underline">
-                Settings
+                Export now
               </Link>
               .
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-border bg-surface py-1.5">
-            {habits.map(({ id, label }) => (
-              <HabitRow
-                key={id}
-                label={label}
-                checked={!!log.habits[id]}
-                onToggle={() => toggleHabit(id)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+            </div>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={dismissBackupNag}
+              className="text-muted hover:text-foreground transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
-      {/* 4. Cold calls */}
-      <section className="space-y-3">
-        <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted">
-          Cold calls
-        </h2>
-        <div className="flex items-center justify-between rounded-2xl border border-border bg-surface p-5">
-          <CounterButton
-            label="Decrement cold calls"
-            disabled={log.coldCalls === 0}
-            onPress={() => adjustColdCalls(-1)}
-          >
-            <Minus className="h-5 w-5" />
-          </CounterButton>
-          <motion.span
-            key={log.coldCalls}
-            initial={{ scale: 0.85, opacity: 0.5 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: "spring", stiffness: 500, damping: 25 }}
-            className="text-[56px] font-semibold tracking-tight text-foreground tabular-nums leading-none"
-          >
-            {log.coldCalls}
-          </motion.span>
-          <CounterButton
-            label="Increment cold calls"
-            onPress={() => adjustColdCalls(1)}
-          >
-            <Plus className="h-5 w-5" />
-          </CounterButton>
-        </div>
-      </section>
+      <PrBanner prs={prs} onDismiss={() => setPrs([])} />
 
-      {/* 5. Collapsible log cards */}
-      <section className="space-y-2.5">
-        <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted">
-          Log
-        </h2>
-
-        <CollapseCard
-          title="Run"
-          summary={
-            log.runMiles > 0 ? `${log.runMiles} mi` : undefined
-          }
-        >
-          <div className="space-y-4 pt-3">
-            <LabeledNumber
-              label="Miles"
-              defaultValue={log.runMiles}
-              step={0.1}
-              onCommit={(v) => update({ runMiles: v })}
-            />
-            <LabeledTextarea
-              label="Notes"
-              defaultValue={log.runNotes}
-              onCommit={(v) => update({ runNotes: v })}
-            />
-          </div>
-        </CollapseCard>
-
-        <CollapseCard title="AM lift">
-          <div className="pt-3">
-            <LabeledTextarea
-              label="Notes"
-              defaultValue={log.amLiftNotes}
-              onCommit={(v) => update({ amLiftNotes: v })}
-            />
-          </div>
-        </CollapseCard>
-
-        <CollapseCard title="PM lift">
-          <div className="pt-3">
-            <LabeledTextarea
-              label="Notes"
-              defaultValue={log.pmLiftNotes}
-              onCommit={(v) => update({ pmLiftNotes: v })}
-            />
-          </div>
-        </CollapseCard>
-
-        <CollapseCard
-          title="Plunge"
-          summary={
-            log.plungeMinutes > 0 ? `${log.plungeMinutes} min` : undefined
-          }
-        >
-          <div className="pt-3">
-            <LabeledNumber
-              label="Minutes"
-              defaultValue={log.plungeMinutes}
-              step={0.5}
-              onCommit={(v) => update({ plungeMinutes: v })}
-            />
-          </div>
-        </CollapseCard>
-
-        <CollapseCard
-          title="Sleep"
-          summary={log.sleepHours > 0 ? `${log.sleepHours} hr` : undefined}
-        >
-          <div className="pt-3 space-y-3">
-            <LabeledNumber
-              key={`sleep-${log.sleepHours}`}
-              label="Hours"
-              defaultValue={log.sleepHours}
-              step={0.25}
-              onCommit={(v) => update({ sleepHours: v })}
-            />
-            {log.sleepHours === 0 && sleepSuggestion > 0 ? (
-              <button
-                type="button"
-                onClick={() => update({ sleepHours: sleepSuggestion })}
-                className="text-[12px] text-muted hover:text-accent transition-colors"
-              >
-                Use {sleepSuggestion}h
-                <span className="text-muted/60">
-                  {" "}
-                  (your recent median)
-                </span>
-              </button>
-            ) : null}
-          </div>
-        </CollapseCard>
-      </section>
-
-      {/* 6. Today's win */}
-      <section className="space-y-3">
-        <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted">
-          Today&rsquo;s win
-        </h2>
-        <textarea
-          defaultValue={log.win}
-          placeholder="What went right?"
-          rows={3}
-          onBlur={(e) => update({ win: e.target.value })}
-          className="block w-full rounded-2xl border border-border bg-surface p-4 text-[15px] text-foreground placeholder:text-muted/60 outline-none focus:border-accent/60 transition-colors resize-none"
-        />
-      </section>
-
-      {/* 7. Today's lesson */}
-      <section className="space-y-3">
-        <h2 className="text-[13px] uppercase tracking-[0.18em] text-muted">
-          Today&rsquo;s lesson
-        </h2>
-        <textarea
-          defaultValue={log.lesson}
-          placeholder="What did you learn?"
-          rows={3}
-          onBlur={(e) => update({ lesson: e.target.value })}
-          className="block w-full rounded-2xl border border-border bg-surface p-4 text-[15px] text-foreground placeholder:text-muted/60 outline-none focus:border-accent/60 transition-colors resize-none"
-        />
-      </section>
+      <DayForm
+        log={log}
+        habits={habits}
+        habitStreaks={habitStreaks}
+        sleepSuggestion={sleepSuggestion}
+        onChange={update}
+      />
     </motion.main>
-  );
-}
-
-function CounterButton({
-  children,
-  onPress,
-  disabled,
-  label,
-}: {
-  children: React.ReactNode;
-  onPress: () => void;
-  disabled?: boolean;
-  label: string;
-}) {
-  return (
-    <motion.button
-      type="button"
-      aria-label={label}
-      onClick={onPress}
-      disabled={disabled}
-      whileTap={disabled ? undefined : { scale: 0.92 }}
-      transition={{ type: "spring", stiffness: 500, damping: 25 }}
-      className="flex h-12 w-12 items-center justify-center rounded-full border border-border text-foreground disabled:opacity-30 disabled:cursor-not-allowed hover:border-accent/60 transition-colors"
-    >
-      {children}
-    </motion.button>
-  );
-}
-
-function LabeledNumber({
-  label,
-  defaultValue,
-  step,
-  onCommit,
-}: {
-  label: string;
-  defaultValue: number;
-  step: number;
-  onCommit: (value: number) => void;
-}) {
-  return (
-    <label className="flex items-center justify-between gap-4">
-      <span className="text-[13px] text-muted">{label}</span>
-      <input
-        type="number"
-        inputMode="decimal"
-        step={step}
-        min={0}
-        defaultValue={defaultValue || ""}
-        placeholder="0"
-        onBlur={(e) => {
-          const v = parseFloat(e.target.value);
-          onCommit(Number.isFinite(v) ? v : 0);
-        }}
-        className="w-24 min-h-11 rounded-lg bg-background/60 border border-border text-right text-[15px] text-foreground placeholder:text-muted/60 outline-none focus:border-accent/60 transition-colors px-3 py-2 tabular-nums"
-      />
-    </label>
-  );
-}
-
-function LabeledTextarea({
-  label,
-  defaultValue,
-  onCommit,
-}: {
-  label: string;
-  defaultValue: string;
-  onCommit: (value: string) => void;
-}) {
-  return (
-    <label className="block space-y-2">
-      <span className="text-[13px] text-muted">{label}</span>
-      <textarea
-        defaultValue={defaultValue}
-        rows={3}
-        onBlur={(e) => onCommit(e.target.value)}
-        className="block w-full rounded-lg bg-background/60 border border-border p-3 text-[15px] text-foreground placeholder:text-muted/60 outline-none focus:border-accent/60 transition-colors resize-none"
-      />
-    </label>
   );
 }
