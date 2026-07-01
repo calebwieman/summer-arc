@@ -247,7 +247,13 @@ export function exportCsv(): string {
 }
 
 function csvCell(value: string | number): string {
-  const s = String(value);
+  let s = String(value);
+  // Defang spreadsheet formula injection: a cell that a spreadsheet would
+  // evaluate (leading = + - @ or a leading TAB/CR) is prefixed with a quote so
+  // Excel/Sheets treat it as text, not a formula.
+  if (/^[=+\-@\t\r]/.test(s)) {
+    s = `'${s}`;
+  }
   if (s.includes(",") || s.includes('"') || s.includes("\n")) {
     return `"${s.replace(/"/g, '""')}"`;
   }
