@@ -1,5 +1,3 @@
-import type { HabitKey } from "./types";
-
 /**
  * Static weekly template. No calendar API — this file is the single source of
  * truth for what the day is supposed to look like.
@@ -23,8 +21,6 @@ export interface Block {
   end: string;
   label: string;
   kind: BlockKind;
-  /** When set, checking this habit is anchored to this block. */
-  habit?: HabitKey;
 }
 
 /** 0 = Sunday … 6 = Saturday, matching `Date.prototype.getDay()`. */
@@ -35,7 +31,6 @@ const WAKE: Block = {
   end: "05:00",
   label: "Wake",
   kind: "personal",
-  habit: "wake",
 };
 
 const WIND_DOWN: Block = {
@@ -43,18 +38,17 @@ const WIND_DOWN: Block = {
   end: "22:00",
   label: "Wind Down",
   kind: "rest",
-  habit: "lightsOut",
 };
 
 /** Mon / Wed / Fri, everything up to the evening. */
 const MWF_DAY: Block[] = [
   WAKE,
-  { start: "05:00", end: "06:00", label: "Run", kind: "training", habit: "training" },
-  { start: "06:20", end: "07:00", label: "Quiet Time", kind: "personal", habit: "phoneOff" },
+  { start: "05:00", end: "06:00", label: "Run", kind: "training" },
+  { start: "06:20", end: "07:00", label: "Quiet Time", kind: "personal" },
   { start: "07:00", end: "07:30", label: "Breakfast", kind: "personal" },
   { start: "07:30", end: "09:00", label: "Admin", kind: "work" },
   { start: "09:00", end: "09:50", label: "ENGL 1213", kind: "class" },
-  { start: "10:00", end: "12:20", label: "Deep Work", kind: "work", habit: "deepWork" },
+  { start: "10:00", end: "12:20", label: "Deep Work", kind: "work" },
   { start: "12:20", end: "13:00", label: "Lunch", kind: "personal" },
   { start: "13:00", end: "13:50", label: "FMS 1013", kind: "class" },
   { start: "15:00", end: "15:50", label: "SPAN 1115", kind: "class" },
@@ -78,9 +72,9 @@ const WED_EVENING: Block[] = [
 /** Tue / Thu. */
 const TR_DAY: Block[] = [
   WAKE,
-  { start: "05:30", end: "07:15", label: "NSC Session", kind: "training", habit: "training" },
-  { start: "07:15", end: "07:45", label: "Quiet Time", kind: "personal", habit: "phoneOff" },
-  { start: "07:45", end: "10:30", label: "Deep Work", kind: "work", habit: "deepWork" },
+  { start: "05:30", end: "07:15", label: "NSC Session", kind: "training" },
+  { start: "07:15", end: "07:45", label: "Quiet Time", kind: "personal" },
+  { start: "07:45", end: "10:30", label: "Deep Work", kind: "work" },
   { start: "10:30", end: "11:45", label: "POLY 1003", kind: "class" },
   { start: "11:50", end: "12:15", label: "Lunch", kind: "personal" },
   // Second Deep Work block of the day — the habit is anchored to the first only.
@@ -92,15 +86,15 @@ const TR_DAY: Block[] = [
 
 const SATURDAY: Block[] = [
   WAKE,
-  { start: "06:20", end: "07:30", label: "Quiet Time", kind: "personal", habit: "phoneOff" },
-  { start: "09:00", end: "11:00", label: "Long Run", kind: "training", habit: "training" },
+  { start: "06:20", end: "07:30", label: "Quiet Time", kind: "personal" },
+  { start: "09:00", end: "11:00", label: "Long Run", kind: "training" },
   { start: "12:00", end: "14:00", label: "Content", kind: "work" },
   WIND_DOWN,
 ];
 
 const SUNDAY: Block[] = [
   WAKE,
-  { start: "06:20", end: "07:30", label: "Quiet Time", kind: "personal", habit: "phoneOff" },
+  { start: "06:20", end: "07:30", label: "Quiet Time", kind: "personal" },
   { start: "09:30", end: "11:30", label: "Church", kind: "personal" },
   { start: "14:00", end: "15:30", label: "Weekly Reset", kind: "personal" },
   { start: "19:00", end: "21:00", label: "Study", kind: "work" },
@@ -133,30 +127,6 @@ export function blocksForDate(date: string): Block[] {
   return WEEKLY_SCHEDULE[weekdayOf(date)];
 }
 
-/**
- * The block a habit is anchored to on a given date, if any.
- * `deepWork` resolves to the first Deep Work block of the day.
- */
-export function blockForHabit(habit: HabitKey, date: string): Block | undefined {
-  return blocksForDate(date).find((b) => b.habit === habit);
-}
-
-/**
- * True when the habit has a block on this date. Rest days are real — `training`
- * is not scheduled on Sunday and `deepWork` is not scheduled on weekends, so
- * neither should count as a miss there.
- */
-export function isHabitScheduled(habit: HabitKey, date: string): boolean {
-  return blockForHabit(habit, date) !== undefined;
-}
-
-/** Every habit anchored on the given date, in block order. */
-export function habitsForDate(date: string): HabitKey[] {
-  return blocksForDate(date)
-    .map((b) => b.habit)
-    .filter((h): h is HabitKey => h !== undefined);
-}
-
 /** Minutes since midnight for an "HH:mm" string. */
 export function toMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -169,4 +139,23 @@ export function blockAt(date: string, time: string): Block | undefined {
   return blocksForDate(date).find(
     (b) => mins >= toMinutes(b.start) && mins < toMinutes(b.end),
   );
+}
+
+/**
+ * Every distinct block label across the week, in first-appearance order.
+ * The habit editor offers these as anchor targets — a habit anchored to a
+ * label is scheduled exactly on the days that label appears, which is how
+ * "Deep Work" stays a weekday habit without anyone stating that anywhere.
+ */
+export function allBlockLabels(): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const day of [1, 2, 3, 4, 5, 6, 0] as Weekday[]) {
+    for (const b of WEEKLY_SCHEDULE[day]) {
+      if (seen.has(b.label)) continue;
+      seen.add(b.label);
+      out.push(b.label);
+    }
+  }
+  return out;
 }

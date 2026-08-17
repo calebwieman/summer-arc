@@ -9,7 +9,8 @@ import {
   useReducedMotion,
   useTransform,
 } from "motion/react";
-import { ChevronsRight, Footprints, Moon, Smartphone, Sunrise, Target } from "lucide-react";
+import { ChevronsRight } from "lucide-react";
+import { iconFor } from "./habit-icons";
 import { HAPTIC_COMMIT, HAPTIC_RELEASE, haptic } from "@/lib/haptics";
 import { formatClock } from "@/lib/clock";
 import type { HabitKey } from "@/lib/types";
@@ -38,16 +39,10 @@ const S_REJECT = { type: "spring", stiffness: 380, damping: 26, mass: 1.2 } as c
  */
 const S_REDUCED = { type: "spring", stiffness: 900, damping: 60, mass: 0.6 } as const;
 
-const GLYPH: Record<HabitKey, React.ComponentType<{ className?: string }>> = {
-  wake: Sunrise,
-  phoneOff: Smartphone,
-  training: Footprints,
-  deepWork: Target,
-  lightsOut: Moon,
-};
-
 interface LatchProps {
   habit: HabitKey;
+  /** Icon name from habit-icons. */
+  icon: string;
   label: string;
   checked: boolean;
   stampMin?: number;
@@ -58,6 +53,7 @@ interface LatchProps {
 
 export function Latch({
   habit,
+  icon,
   label,
   checked,
   stampMin,
@@ -77,7 +73,7 @@ export function Latch({
   /** Set when this component drove the change, so parking doesn't re-animate. */
   const selfDriven = useRef(false);
   const mounted = useRef(false);
-  const Glyph = GLYPH[habit];
+  const Glyph = iconFor(icon);
 
   useEffect(() => {
     const el = trackRef.current;

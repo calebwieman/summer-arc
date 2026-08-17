@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { getHabits } from "./habits";
 import type { DailyLog, HabitKey } from "./types";
 
 export function getTodayString(): string {
@@ -16,33 +17,27 @@ export function formatHeaderDate(date: string): string {
   return format(new Date(year, month - 1, day), "EEEE, MMMM d");
 }
 
-/** Every habit key, in the order they come up in a day. */
-export const HABIT_KEYS: HabitKey[] = [
-  "wake",
-  "phoneOff",
-  "training",
-  "deepWork",
-  "lightsOut",
-];
+/**
+ * Every live habit id, in display order.
+ *
+ * This was a hardcoded array beside a hardcoded label map. Both are now derived
+ * from the registry, because the set is user-defined — a static list would go
+ * stale the moment a habit is added, and a static label map would render the
+ * raw id for anything the user created.
+ */
+export function habitKeys(): HabitKey[] {
+  return getHabits().map((h) => h.id);
+}
 
-export const HABIT_LABELS: Record<HabitKey, string> = {
-  wake: "Wake 04:45",
-  phoneOff: "Phone off till Quiet Time",
-  training: "Training",
-  deepWork: "Deep Work",
-  lightsOut: "Lights out",
-};
-
+/**
+ * A blank day. `habits` is deliberately empty rather than every id set false:
+ * absent means "not done", so a habit invented next month does not have to be
+ * back-written into every day that came before it.
+ */
 export function makeEmptyLog(date: string): DailyLog {
   return {
     date,
-    habits: {
-      wake: false,
-      phoneOff: false,
-      training: false,
-      deepWork: false,
-      lightsOut: false,
-    },
+    habits: {},
     deepWorkMinutes: 0,
     trainingNote: "",
     contentShipped: false,

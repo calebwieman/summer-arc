@@ -2,7 +2,7 @@
 
 import { motion, useReducedMotion } from "motion/react";
 import { format, parseISO, subDays } from "date-fns";
-import { habitsForDate } from "@/lib/schedule";
+import { habitIdsForDate } from "@/lib/habits";
 import { getDailyLog } from "@/lib/storage";
 
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
@@ -23,7 +23,7 @@ export function buildWeek(today: string): WeekDay[] {
   for (let i = 6; i >= 0; i--) {
     const d = subDays(end, i);
     const date = format(d, "yyyy-MM-dd");
-    const keys = habitsForDate(date);
+    const keys = habitIdsForDate(date);
     const log = getDailyLog(date);
     out.push({
       date,

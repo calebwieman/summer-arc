@@ -89,16 +89,26 @@ function Row({ s, index }: { s: HabitSeries; index: number }) {
       <div className="flex items-baseline gap-2.5">
         <HabitGlyph
           habit={s.key}
+          code={s.code}
           state={s.missedTwice ? "fault" : s.rate >= 0.8 ? "done" : "pending"}
         />
-        <span className="truncate font-mono text-[10px] uppercase tracking-[0.16em] text-ink-2">
-          {s.label}
-        </span>
+        <span className="mono-xs truncate text-ink-2">{s.label}</span>
         {/* The fraction only. A percentage beside it was both redundant and,
             when the two were computed over different windows, contradictory. */}
-        <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums tracking-[0.06em] text-ink-3">
+        <span className="mono-sm ml-auto shrink-0 tabular-nums text-ink-3">
           {s.doneCount}/{s.scheduledCount}
         </span>
+      </div>
+
+      {/* Streak line. Deliberately below the fraction and in the quieter
+          colour: the seismograph is still the primary reading, and a streak
+          that shouts would re-centre the app on not breaking a chain — which
+          is the failure mode the no-streak rule was avoiding. */}
+      <div className="mono-xs mt-1 flex items-baseline gap-3 text-ink-3">
+        <span className={s.streak > 0 ? "text-ink-2" : undefined}>
+          streak {s.streak}
+        </span>
+        {s.best > 0 ? <span>best {s.best}</span> : null}
       </div>
 
       <div

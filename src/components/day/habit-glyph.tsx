@@ -3,15 +3,6 @@
 import { motion } from "motion/react";
 import type { HabitKey } from "@/lib/types";
 
-/** Single-letter code per habit. Q = quiet time, the phoneOff anchor. */
-export const HABIT_CODE: Record<HabitKey, string> = {
-  wake: "W",
-  phoneOff: "Q",
-  training: "T",
-  deepWork: "D",
-  lightsOut: "L",
-};
-
 export type GlyphState =
   | "done"
   | "pending"
@@ -46,9 +37,12 @@ const RULE: Record<GlyphState, string> = {
  */
 export function HabitGlyph({
   habit,
+  code,
   state,
 }: {
   habit: HabitKey;
+  /** Register letter, from the habit's own definition. */
+  code: string;
   state: GlyphState;
 }) {
   return (
@@ -60,7 +54,7 @@ export function HabitGlyph({
       <span
         className={`font-mono text-[12px] leading-none tracking-[0.04em] ${LETTER[state]}`}
       >
-        {HABIT_CODE[habit]}
+        {code}
       </span>
       <span className={`h-[1.5px] w-[11px] rounded-pill ${RULE[state]}`} />
     </motion.span>

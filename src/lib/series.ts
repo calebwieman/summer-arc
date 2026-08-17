@@ -1,7 +1,8 @@
 import { format, parseISO, subDays } from "date-fns";
-import { isHabitScheduled } from "./schedule";
+import { getHabits, isHabitScheduledOn } from "./habits";
+import { bestStreak, currentStreak } from "./stats";
 import { getAllDailyLogs, getDailyLog, hasMissedTwice } from "./storage";
-import { HABIT_KEYS, HABIT_LABELS, getTodayString } from "./today";
+import { getTodayString } from "./today";
 import type { HabitKey } from "./types";
 
 export interface HabitDaySample {
@@ -21,6 +22,8 @@ export interface HabitDaySample {
 export interface HabitSeries {
   key: HabitKey;
   label: string;
+  /** Register letter, carried through so the record can draw the glyph. */
+  code: string;
   /** Oldest → newest, length `days`, ending on `today`. */
   samples: HabitDaySample[];
   doneCount: number;
@@ -30,6 +33,10 @@ export interface HabitSeries {
   missedTwice: boolean;
   /** Indices into `samples` of the current consecutive-miss run (length ≥ 2). */
   flagRun: number[];
+  /** Consecutive scheduled days done, over the whole history — not just this window. */
+  streak: number;
+  /** Longest such run ever. */
+  best: number;
 }
 
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
@@ -68,9 +75,10 @@ export function buildHabitSeries(
     });
   }
 
-  return HABIT_KEYS.map((key) => {
+  return getHabits().map((habit) => {
+    const key = habit.id;
     const samples: HabitDaySample[] = window.map((w) => {
-      const scheduled = isHabitScheduled(key, w.date);
+      const scheduled = isHabitScheduledOn(habit, w.date);
       const isToday = w.date === today;
       // No source for this habit on this day (a restored legacy day), or the
       // day predates the first log entirely — either way it is not a miss.
@@ -100,13 +108,16 @@ export function buildHabitSeries(
 
     return {
       key,
-      label: HABIT_LABELS[key],
+      label: habit.label,
+      code: habit.code,
       samples,
       doneCount,
       scheduledCount: counted.length,
       rate: counted.length === 0 ? 0 : doneCount / counted.length,
       missedTwice: hasMissedTwice(key),
       flagRun: flagRun.length >= 2 ? flagRun : [],
+      streak: currentStreak(habit, today),
+      best: bestStreak(habit, today),
     };
   });
 }

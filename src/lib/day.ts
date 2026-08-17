@@ -1,3 +1,4 @@
+import { getHabits, isHabitScheduledOn, anchorIndexFor, type HabitDef } from "./habits";
 import { blocksForDate, toMinutes, type Block } from "./schedule";
 import type { DailyLog, HabitKey } from "./types";
 
@@ -19,8 +20,12 @@ export interface DayBlock {
   index: number;
   startMin: number;
   endMin: number;
-  /** Habit anchored to this block, if any. */
-  habit?: HabitKey;
+  /**
+   * Habits committed inside this block. A list rather than a single id: a user
+   * can anchor several habits to the same block, and nothing about the design
+   * says a block owns at most one.
+   */
+  habits: HabitKey[];
   /** DailyLog fields captured here. */
   fields: BlockField[];
   phase: BlockPhase;
@@ -46,11 +51,20 @@ export interface DayModel {
   /** Minutes of dead air remaining until the next block, when state==="gap". */
   gapRemaining: number;
   /**
-   * A block that has just ended with its habit still unthrown, held open during
+   * A block that has just ended with a habit still unthrown, held open during
    * the dead air after it. You finish the run at 06:02; the 05:00–06:00 block
    * must not have vanished. -1 when nothing is being held.
    */
   graceIndex: number;
+  /**
+   * Habits scheduled today that no block owns — a user habit with no anchor.
+   * They have no place in the spine, so they are committed from a sheet opened
+   * off their register glyph, which works at any hour rather than only during
+   * some block that happens to be running.
+   */
+  floating: HabitKey[];
+  /** Every habit expected today, anchored and floating, in display order. */
+  scheduled: HabitKey[];
 }
 
 /** How long a just-ended block stays throwable. */
@@ -62,6 +76,10 @@ const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
  * Attach DailyLog fields to blocks. Weekends have no Deep Work and no Content
  * block, so those fields fall back to Wind Down rather than becoming
  * uncapturable for the day.
+ *
+ * Matching is on label and kind. It used to key off `Block.habit`, which no
+ * longer exists — and tying the day's fields to a habit the user can now
+ * delete would have made the closing note vanish with it.
  */
 function assignFields(blocks: Block[]): Map<number, BlockField[]> {
   const map = new Map<number, BlockField[]>();
@@ -73,17 +91,17 @@ function assignFields(blocks: Block[]): Map<number, BlockField[]> {
 
   const findIdx = (pred: (b: Block) => boolean) => blocks.findIndex(pred);
 
-  const windDownIdx = findIdx((b) => b.habit === "lightsOut");
+  const windDownIdx = findIdx((b) => b.label === "Wind Down");
   // The day's closing note always lives in Wind Down.
   if (windDownIdx >= 0) push(windDownIdx, "note");
 
   // Sunday has no training block, but a shakeout run still happens — without a
   // fallback there is nowhere to write it down.
-  const trainingIdx = findIdx((b) => b.habit === "training");
+  const trainingIdx = findIdx((b) => b.kind === "training");
   const trainingTarget = trainingIdx >= 0 ? trainingIdx : windDownIdx;
   if (trainingTarget >= 0) push(trainingTarget, "trainingNote");
 
-  const deepIdx = findIdx((b) => b.habit === "deepWork");
+  const deepIdx = findIdx((b) => b.label === "Deep Work");
   if (deepIdx >= 0) {
     push(deepIdx, "deepWorkMinutes");
   } else {
@@ -105,9 +123,27 @@ export function buildDay(
   date: string,
   nowMin: number,
   log?: DailyLog | null,
+  habits: HabitDef[] = getHabits(),
 ): DayModel {
   const raw = blocksForDate(date);
   const fields = assignFields(raw);
+
+  // Resolve every scheduled habit to the block that owns it, once.
+  const byBlock = new Map<number, HabitKey[]>();
+  const floating: HabitKey[] = [];
+  const scheduled: HabitKey[] = [];
+  for (const h of habits) {
+    if (!isHabitScheduledOn(h, date)) continue;
+    scheduled.push(h.id);
+    const idx = h.anchor ? anchorIndexFor(h, date) : -1;
+    if (idx >= 0) {
+      const cur = byBlock.get(idx);
+      if (cur) cur.push(h.id);
+      else byBlock.set(idx, [h.id]);
+    } else {
+      floating.push(h.id);
+    }
+  }
 
   const blocks: DayBlock[] = raw.map((block, index) => {
     const startMin = toMinutes(block.start);
@@ -124,7 +160,7 @@ export function buildDay(
       index,
       startMin,
       endMin,
-      habit: block.habit,
+      habits: byBlock.get(index) ?? [],
       fields: fields.get(index) ?? [],
       phase,
       progress: clamp01((nowMin - startMin) / span),
@@ -163,8 +199,8 @@ export function buildDay(
   if (currentIndex < 0) {
     for (let i = blocks.length - 1; i >= 0; i--) {
       const b = blocks[i];
-      if (b.phase !== "past" || !b.habit) continue;
-      if (log?.habits?.[b.habit]) break;
+      if (b.phase !== "past" || b.habits.length === 0) continue;
+      if (b.habits.every((h) => log?.habits?.[h])) break;
       if (dayOver || nowMin - b.endMin <= GRACE_MIN) graceIndex = i;
       break;
     }
@@ -190,14 +226,14 @@ export function buildDay(
     state,
     gapRemaining,
     graceIndex,
+    floating,
+    scheduled,
   };
 }
 
 /** Habits scheduled today that are still unchecked, in day order. */
 export function openHabits(day: DayModel, log: DailyLog | null): HabitKey[] {
-  return day.blocks
-    .map((b) => b.habit)
-    .filter((h): h is HabitKey => !!h && !log?.habits?.[h]);
+  return day.scheduled.filter((h) => !log?.habits?.[h]);
 }
 
 /** Count of today's habits done / scheduled. */
@@ -205,11 +241,8 @@ export function habitTally(
   day: DayModel,
   log: DailyLog | null,
 ): { done: number; total: number } {
-  const keys = day.blocks
-    .map((b) => b.habit)
-    .filter((h): h is HabitKey => !!h);
   return {
-    done: keys.filter((k) => log?.habits?.[k]).length,
-    total: keys.length,
+    done: day.scheduled.filter((k) => log?.habits?.[k]).length,
+    total: day.scheduled.length,
   };
 }

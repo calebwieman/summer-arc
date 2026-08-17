@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { X } from "lucide-react";
+import { motion } from "motion/react";
 import { Archive } from "@/components/review/archive";
+import { Sheet } from "@/components/ui/sheet";
+import { HabitEditor } from "./habit-editor";
 import { useTheme, type ThemePref } from "@/components/theme/theme-provider";
 import { haptic } from "@/lib/haptics";
 
@@ -60,69 +60,13 @@ export function SettingsSheet({
   open: boolean;
   onClose: () => void;
 }) {
-  const reduced = useReducedMotion();
-
-  // Escape closes; the sheet owns focus while it is up.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
   return (
-    <AnimatePresence>
-      {open ? (
-        <>
-          <motion.button
-            type="button"
-            aria-label="Close settings"
-            onClick={onClose}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-40 bg-scrim"
-          />
-          <motion.div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Settings"
-            initial={reduced ? { opacity: 0 } : { y: "100%" }}
-            animate={reduced ? { opacity: 1 } : { y: 0 }}
-            exit={reduced ? { opacity: 0 } : { y: "100%" }}
-            transition={
-              reduced
-                ? { duration: 0.15 }
-                : { type: "spring", stiffness: 320, damping: 34, mass: 0.9 }
-            }
-            className="fixed inset-x-0 bottom-0 z-50 max-h-[86dvh] overflow-y-auto rounded-t-lg border-t border-line-mid bg-surface px-5 pt-3 pb-[calc(env(safe-area-inset-bottom)+28px)]"
-          >
-            {/* Grab handle — the sheet reads as draggable even though the
-                close control is the explicit path. */}
-            <div className="mx-auto h-1 w-10 rounded-pill bg-line-mid" />
-
-            <div className="mt-5 flex items-center justify-center">
-              <h2 className="kicker">Settings</h2>
-              <button
-                type="button"
-                aria-label="Close settings"
-                onClick={onClose}
-                className="absolute right-4 flex h-11 w-11 items-center justify-center rounded-pill text-ink-3 hover:text-ink"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="mt-7 space-y-8">
-              <ThemeChoice />
-              <Archive />
-            </div>
-          </motion.div>
-        </>
-      ) : null}
-    </AnimatePresence>
+    <Sheet open={open} onClose={onClose} title="Settings" tall>
+      <div className="space-y-8">
+        <HabitEditor />
+        <ThemeChoice />
+        <Archive />
+      </div>
+    </Sheet>
   );
 }

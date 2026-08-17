@@ -1,7 +1,7 @@
 import { eachDayOfInterval, format, parseISO, subDays } from "date-fns";
+import { getHabit, getHabits, isHabitScheduledOn, type HabitDef } from "./habits";
 import { isLegacyBundle, isLegacyLog, migrateLegacyLog } from "./migrate";
-import { isHabitScheduled } from "./schedule";
-import { HABIT_KEYS, HABIT_LABELS, getTodayString } from "./today";
+import { getTodayString } from "./today";
 import type { DailyLog, HabitKey } from "./types";
 
 const DAILY_PREFIX = "standard:daily:";
@@ -72,8 +72,8 @@ function wasDone(date: string, habit: HabitKey): boolean {
  * a pile of misses) and the habit is actually scheduled that day — Sunday is
  * not a training miss, and the weekend is not a deep-work miss.
  */
-function isScoredDay(date: string, habit: HabitKey, since: string): boolean {
-  return date >= since && isHabitScheduled(habit, date);
+function isScoredDay(date: string, habit: HabitDef, since: string): boolean {
+  return date >= since && isHabitScheduledOn(habit, date);
 }
 
 /**
@@ -84,7 +84,8 @@ function isScoredDay(date: string, habit: HabitKey, since: string): boolean {
  */
 export function getRollingRate(habitKey: HabitKey, days = 14): number {
   const since = earliestLogDate();
-  if (!since) return 0;
+  const habit = getHabit(habitKey);
+  if (!since || !habit) return 0;
 
   const yesterday = subDays(parseISO(getTodayString()), 1);
   let done = 0;
@@ -92,7 +93,7 @@ export function getRollingRate(habitKey: HabitKey, days = 14): number {
 
   for (let i = 0; i < days; i++) {
     const date = format(subDays(yesterday, i), "yyyy-MM-dd");
-    if (!isScoredDay(date, habitKey, since)) continue;
+    if (!isScoredDay(date, habit, since)) continue;
     scored++;
     if (wasDone(date, habitKey)) done++;
   }
@@ -111,14 +112,15 @@ const MISS_LOOKBACK_DAYS = 60;
  */
 export function hasMissedTwice(habitKey: HabitKey): boolean {
   const since = earliestLogDate();
-  if (!since) return false;
+  const habit = getHabit(habitKey);
+  if (!since || !habit) return false;
 
   const yesterday = subDays(parseISO(getTodayString()), 1);
   const recent: boolean[] = [];
 
   for (let i = 0; i < MISS_LOOKBACK_DAYS && recent.length < 2; i++) {
     const date = format(subDays(yesterday, i), "yyyy-MM-dd");
-    if (!isScoredDay(date, habitKey, since)) continue;
+    if (!isScoredDay(date, habit, since)) continue;
     recent.push(wasDone(date, habitKey));
   }
 
@@ -194,13 +196,16 @@ export function clearAllLogs(): void {
 
 /** Flat CSV of every daily log, one row per day. */
 export function exportCsv(): string {
+  // Columns follow the registry, retired habits included, so a spreadsheet of
+  // last month still has a column for the habit you dropped last week.
+  const habits = getHabits();
   const cols = [
     "date",
     "deep_work_minutes",
     "content_shipped",
     "training_note",
     "note",
-    ...HABIT_KEYS.map((k) => `habit:${HABIT_LABELS[k]}`),
+    ...habits.map((h) => `habit:${h.label}`),
   ];
   const rows = getAllDailyLogs().map((log) => [
     log.date,
@@ -208,7 +213,7 @@ export function exportCsv(): string {
     log.contentShipped ? "1" : "",
     log.trainingNote ?? "",
     log.note ?? "",
-    ...HABIT_KEYS.map((k) => (log.habits?.[k] ? "1" : "")),
+    ...habits.map((h) => (log.habits?.[h.id] ? "1" : "")),
   ]);
   return [cols, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }

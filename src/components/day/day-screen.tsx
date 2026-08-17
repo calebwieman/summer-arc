@@ -15,12 +15,14 @@ import { buildDay, type DayBlock, type DayModel } from "@/lib/day";
 import { approach, upcomingHeight } from "@/lib/layout";
 import { buildHabitSeries } from "@/lib/series";
 import { getDailyLog, lastTrainingNote, saveDailyLog } from "@/lib/storage";
-import { HABIT_LABELS, formatHeaderDate, makeEmptyLog } from "@/lib/today";
+import { formatHeaderDate, makeEmptyLog } from "@/lib/today";
+import { HABITS_CHANGED, getHabits, type HabitDef } from "@/lib/habits";
 import { habitTally } from "@/lib/day";
 import { formatClock, formatDuration } from "@/lib/clock";
 import type { DailyLog, HabitKey } from "@/lib/types";
 import { FourteenDay } from "@/components/review/fourteen-day";
 import { SettingsSheet } from "@/components/settings/settings-sheet";
+import { FloatingHabitSheet } from "./floating-habit-sheet";
 import { WeekStrip, buildWeek, type WeekDay } from "./week-strip";
 import { Settings2 } from "lucide-react";
 import { HabitGlyph } from "./habit-glyph";
@@ -290,35 +292,48 @@ function GapNow({
 function Register({
   day,
   log,
+  habits,
   onOpen,
   onRecall,
+  onFloating,
 }: {
   day: DayModel;
   log: DailyLog | null;
+  habits: HabitDef[];
   onOpen: () => void;
   onRecall: (blockIndex: number) => void;
+  /** A habit with no block of its own — committed in a sheet instead. */
+  onFloating: (id: HabitKey) => void;
 }) {
   const blockOf = new Map<HabitKey, number>();
   const endedOf = new Map<HabitKey, boolean>();
   for (const b of day.blocks) {
-    if (!b.habit) continue;
-    blockOf.set(b.habit, b.index);
-    endedOf.set(b.habit, b.phase === "past");
+    for (const id of b.habits) {
+      blockOf.set(id, b.index);
+      endedOf.set(id, b.phase === "past");
+    }
   }
+  const floating = new Set(day.floating);
 
   return (
     <div className="flex items-center gap-3 px-5">
-      <div className="flex gap-1.5">
-        {(Object.keys(HABIT_LABELS) as HabitKey[]).map((k) => {
+      {/* Scrolls rather than shrinks: the register is a fixed row in a fixed
+          column, and once habits are user-defined there is no upper bound on
+          how many glyphs land here. Five fit; twelve would have squeezed the
+          "pull for record" affordance off the edge. */}
+      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {habits.map((h) => {
+          const k = h.id;
           const idx = blockOf.get(k);
-          const scheduled = idx != null;
+          const isFloating = floating.has(k);
+          const scheduled = idx != null || isFloating;
           const done = log?.habits?.[k] === true;
           return (
             <button
               key={k}
               type="button"
-              title={HABIT_LABELS[k]}
-              aria-label={`${HABIT_LABELS[k]} — ${
+              title={h.label}
+              aria-label={`${h.label} — ${
                 !scheduled
                   ? "not scheduled today"
                   : done
@@ -327,12 +342,17 @@ function Register({
               }`}
               disabled={!scheduled}
               // Recalls the block that owns this habit, which is the only way
-              // to reach one whose window has already closed.
-              onClick={() => idx != null && onRecall(idx)}
+              // to reach one whose window has already closed. A habit with no
+              // block opens its own sheet, so it is reachable at any hour.
+              onClick={() => {
+                if (idx != null) onRecall(idx);
+                else if (isFloating) onFloating(k);
+              }}
               className="flex min-h-11 items-center disabled:cursor-default"
             >
               <HabitGlyph
                 habit={k}
+                code={h.code}
                 state={
                   !scheduled
                     ? "unscheduled"
@@ -366,6 +386,7 @@ function FocusBlock({
   b,
   day,
   log,
+  habitById,
   nowMV,
   onHabit,
   onPatch,
@@ -376,6 +397,7 @@ function FocusBlock({
   b: DayBlock;
   day: DayModel;
   log: DailyLog | null;
+  habitById: Map<string, HabitDef>;
   nowMV: ReturnType<typeof useClock>["nowMV"];
   onHabit: (k: HabitKey, v: boolean) => void;
   onPatch: (p: Partial<DailyLog>) => void;
@@ -516,23 +538,32 @@ function FocusBlock({
             />
           ) : null}
 
-          {/* The commit sits last: read the block, fill it in, then throw it.
+          {/* The commits sit last: read the block, fill it in, then throw it.
               Last also means lowest — inside the one-handed thumb arc.
               A block that has not begun cannot be thrown: otherwise Saturday
-              afternoon offers a Lights-out latch that stamps 16:00. */}
-          {b.habit && !started ? (
+              afternoon offers a Lights-out latch that stamps 16:00.
+              Plural now — nothing stops a user anchoring two habits here. */}
+          {b.habits.length > 0 && !started ? (
             <p className="mono-xs text-ink-3">opens {b.block.start}</p>
           ) : null}
-          {b.habit && started ? (
-            <Latch
-              habit={b.habit}
-              label={HABIT_LABELS[b.habit]}
-              checked={log?.habits?.[b.habit] === true}
-              stampMin={log?.stamps?.[b.habit]}
-              onChange={(v) => onHabit(b.habit as HabitKey, v)}
-              onRecoil={onRecoil}
-            />
-          ) : null}
+          {started
+            ? b.habits.map((id) => {
+                const def = habitById.get(id);
+                if (!def) return null;
+                return (
+                  <Latch
+                    key={id}
+                    habit={id}
+                    icon={def.icon}
+                    label={def.label}
+                    checked={log?.habits?.[id] === true}
+                    stampMin={log?.stamps?.[id]}
+                    onChange={(v) => onHabit(id, v)}
+                    onRecoil={onRecoil}
+                  />
+                );
+              })
+            : null}
         </div>
       </div>
     </motion.section>
@@ -545,7 +576,12 @@ export function DayScreen() {
   const reduced = useReducedMotion();
   const clock = useClock();
   const [log, setLog] = useState<DailyLog | null>(null);
+  // Lazy initial read: the registry lives in localStorage, and the real UI is
+  // gated behind `clock.ready`, so nothing rendered before mount can mismatch.
+  const [habits, setHabits] = useState<HabitDef[]>(getHabits);
   const [mode, setMode] = useState<"day" | "record">("day");
+  /** A floating habit being committed in its own sheet. */
+  const [floatingId, setFloatingId] = useState<HabitKey | null>(null);
   /** A recalled block index, or null when following the live day. */
   const [selected, setSelected] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -580,20 +616,32 @@ export function DayScreen() {
     if (mode === "record") recordHeadingRef.current?.focus();
   }, [mode]);
 
+  // Editing habits in the settings sheet must redraw the spine underneath it.
+  useEffect(() => {
+    const reload = () => setHabits(getHabits());
+    window.addEventListener(HABITS_CHANGED, reload);
+    return () => window.removeEventListener(HABITS_CHANGED, reload);
+  }, []);
+
+  const habitById = useMemo(
+    () => new Map(habits.map((h) => [h.id, h])),
+    [habits],
+  );
+
   const day = useMemo(
-    () => buildDay(clock.date, clock.nowMin, log),
-    [clock.date, clock.nowMin, log],
+    () => buildDay(clock.date, clock.nowMin, log, habits),
+    [clock.date, clock.nowMin, log, habits],
   );
 
   const week = useMemo<WeekDay[]>(
     () => (clock.ready ? buildWeek(clock.date) : []),
-    [clock.ready, clock.date, log],
+    [clock.ready, clock.date, log, habits],
   );
 
   const series = useMemo(
     () => (mode === "record" ? buildHabitSeries(14, clock.date) : []),
     // Recompute whenever the record is opened or the log changes beneath it.
-    [mode, log],
+    [mode, log, clock.date, habits],
   );
 
   const patch = useCallback(
@@ -750,6 +798,7 @@ export function DayScreen() {
                     b={focus}
                     day={day}
                     log={log}
+                    habitById={habitById}
                     nowMV={clock.nowMV}
                     onHabit={setHabit}
                     onPatch={patch}
@@ -786,8 +835,10 @@ export function DayScreen() {
                   <Register
                     day={day}
                     log={log}
+                    habits={habits}
                     onOpen={() => setMode("record")}
                     onRecall={setSelected}
+                    onFloating={setFloatingId}
                   />
                 </motion.div>
               </motion.div>
@@ -832,6 +883,12 @@ export function DayScreen() {
       <SettingsSheet
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+      />
+      <FloatingHabitSheet
+        habit={floatingId ? habitById.get(floatingId) : undefined}
+        log={log}
+        onChange={setHabit}
+        onClose={() => setFloatingId(null)}
       />
     </motion.main>
   );

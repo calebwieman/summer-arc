@@ -1,18 +1,21 @@
 /**
- * The five tracked habits. This union is closed on purpose — habits are no
- * longer user-editable, and every one of them is anchored to a block in
- * `lib/schedule.ts`.
+ * A habit's stable id, and the key it occupies inside `DailyLog.habits`.
+ *
+ * This was a closed union of the five habits the app shipped with. It is open
+ * now that habits are user-defined; the five original ids still exist as the
+ * seeded registry in `lib/habits.ts`, so every log ever written keeps scoring
+ * without a migration. Definitions live in the registry, never here — this
+ * file describes what a *day* records, not what a habit is.
  */
-export type HabitKey =
-  | "lightsOut"
-  | "wake"
-  | "phoneOff"
-  | "deepWork"
-  | "training";
+export type HabitKey = string;
 
 export interface DailyLog {
   /** YYYY-MM-DD */
   date: string;
+  /**
+   * Habit id → done. Sparse: an absent key is "not done", which is what lets a
+   * habit be added later without rewriting the days that predate it.
+   */
   habits: Record<HabitKey, boolean>;
   deepWorkMinutes: number;
   trainingNote: string;
