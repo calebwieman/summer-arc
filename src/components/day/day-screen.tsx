@@ -778,12 +778,10 @@ export function DayScreen() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduced ? { opacity: 0 } : { opacity: 0, y: 16 }}
                 transition={S_PAGE}
-                // The extra 12px past the inset is real clearance, not padding
-                // taste: in standalone PWA mode with a black-translucent status
-                // bar the OS paints its own legibility backdrop over the top of
-                // the page, and anything sitting flush against the inset reads
-                // as smeared through it. The date line was landing in that band.
-                className="flex h-full flex-col pt-[calc(env(safe-area-inset-top)+12px)]"
+                // Clearance for the status-bar band lives in .app-top — see
+                // globals.css for why it is a named class rather than an
+                // arbitrary value repeated at three call sites.
+                className="app-top flex h-full flex-col"
               >
                 <motion.div {...rise(0, reduced)} className="shrink-0">
                   <Masthead
@@ -879,7 +877,7 @@ export function DayScreen() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduced ? { opacity: 0 } : { opacity: 0, y: -16 }}
                 transition={S_PAGE}
-                className="flex h-full flex-col overflow-y-auto px-5 pt-[calc(env(safe-area-inset-top)+8px)]"
+                className="app-top-scroll flex h-full flex-col overflow-y-auto px-5"
               >
                 {/* A real heading, focused on entry: the morph replaces the
                     whole surface, and without this a screen reader is left on a
@@ -920,7 +918,7 @@ export function DayScreen() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduced ? { opacity: 0 } : { opacity: 0, y: -16 }}
                 transition={S_PAGE}
-                className="flex h-full flex-col overflow-y-auto px-5 pt-[calc(env(safe-area-inset-top)+8px)]"
+                className="app-top-scroll flex h-full flex-col overflow-y-auto px-5"
               >
                 <div className="pb-5 text-center">
                   <h1

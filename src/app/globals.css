@@ -299,6 +299,43 @@
     letter-spacing: 0.12em;
   }
 
+  /*
+    Status bar clearance.
+
+    In standalone mode with a black-translucent status bar, iOS draws the page
+    *under* the status bar, and modern iOS paints its own legibility backdrop
+    over that band which samples whatever sits beneath it — so any content up
+    there renders smeared rather than crisp.
+
+    Two independent defences, because the exact band height is a platform
+    detail we cannot measure from here:
+      1. `.status-guard` paints flat --bg across the band, so the backdrop only
+         ever has a solid colour to sample.
+      2. `.app-top` keeps real content well clear of it. The 24px is margin
+         over the inset, not decoration — tune this one number if any of the
+         masthead still lands in the band.
+  */
+  .status-guard {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: max(env(safe-area-inset-top, 0px), 8px);
+    background: var(--bg);
+    /* Above the sheet layer: the band should stay flat even with a sheet up. */
+    z-index: 60;
+    pointer-events: none;
+  }
+
+  .app-top {
+    padding-top: calc(max(env(safe-area-inset-top, 0px), 8px) + 24px);
+  }
+
+  /* Same clearance for the surfaces that scroll their own content. */
+  .app-top-scroll {
+    padding-top: calc(max(env(safe-area-inset-top, 0px), 8px) + 16px);
+  }
+
   /* Hard-bordered panel. Depth is displacement + zero-blur shadow. */
   .panel {
     position: relative;
