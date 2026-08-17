@@ -66,6 +66,11 @@ export function SettingsSheet({
         <HabitEditor />
         <ThemeChoice />
         <Archive />
+        {/* Which build is actually running, readable from the phone. */}
+        <p className="mono-xs text-center text-ink-4">
+          build {process.env.NEXT_PUBLIC_BUILD_SHA} ·{" "}
+          {process.env.NEXT_PUBLIC_BUILD_AT} UTC
+        </p>
       </div>
     </Sheet>
   );

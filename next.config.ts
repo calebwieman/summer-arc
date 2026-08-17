@@ -42,6 +42,18 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+  /**
+   * Build stamp, surfaced in the settings sheet.
+   *
+   * Working out whether a phone was running the latest deploy meant comparing
+   * pixels against a known screenshot, which is slow and easy to get wrong.
+   * Vercel sets VERCEL_GIT_COMMIT_SHA at build time; inlining it here makes the
+   * running build identifiable from the device in two taps.
+   */
+  env: {
+    NEXT_PUBLIC_BUILD_SHA: (process.env.VERCEL_GIT_COMMIT_SHA ?? "dev").slice(0, 7),
+    NEXT_PUBLIC_BUILD_AT: new Date().toISOString().slice(0, 16).replace("T", " "),
+  },
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
   },
