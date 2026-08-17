@@ -262,21 +262,41 @@
 }
 
 @layer components {
-  /* Mono uppercase label — the dominant idiom in the source (72 uses). */
+  /* Mono uppercase label — the dominant idiom in the source (72 uses).
+     Sizes here are a legibility floor, not a preference: on a phone at arm's
+     length anything under ~10px of uppercase mono stops being read and starts
+     being a texture. Tracking comes down as size comes down, because wide
+     letterspacing on small type is what makes it swim. */
   .kicker {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 11.5px;
     text-transform: uppercase;
-    letter-spacing: 0.22em;
-    color: var(--ink-3);
+    letter-spacing: 0.16em;
+    color: var(--ink-2);
   }
 
   .meta {
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: 10.5px;
     text-transform: uppercase;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.12em;
     color: var(--ink-3);
+  }
+
+  /* The two small-mono steps used across the day spine. Named so the floor is
+     enforced in one place instead of re-typed as an arbitrary value per call
+     site, which is how it drifted down to 8.5px. */
+  .mono-sm {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+  }
+
+  .mono-xs {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
   }
 
   /* Hard-bordered panel. Depth is displacement + zero-blur shadow. */

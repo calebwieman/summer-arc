@@ -129,7 +129,7 @@ function Row({ s, index }: { s: HabitSeries; index: number }) {
       </div>
 
       {s.missedTwice ? (
-        <p className="mt-1.5 font-mono text-[9.5px] uppercase tracking-[0.18em] text-bad">
+        <p className="mono-xs mt-1.5 text-bad">
           missed twice — fix today
         </p>
       ) : null}
@@ -157,8 +157,8 @@ export function FourteenDay({ series }: { series: HabitSeries[] }) {
         {axis.map((d) => (
           <span
             key={d.date}
-            className={`text-center font-mono text-[8.5px] uppercase tracking-[0.1em] ${
-              d.isToday ? "text-ink-2" : "text-ink-3"
+            className={`mono-xs text-center ${
+              d.isToday ? "text-ink-2" : "text-ink-4"
             }`}
           >
             {d.dow}

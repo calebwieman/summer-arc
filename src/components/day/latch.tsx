@@ -223,7 +223,7 @@ export function Latch({
       <motion.span
         aria-hidden
         style={{ left: PAD + CAR + 16, opacity: labelFade }}
-        className="pointer-events-none absolute inset-y-0 flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.2em] text-ink-3"
+        className="mono-xs pointer-events-none absolute inset-y-0 flex items-center gap-2 text-ink-2"
       >
         {checked ? null : (
           <>
@@ -241,7 +241,7 @@ export function Latch({
           // there just peeks out from behind it. Opacity rides the travel so
           // it clears out of the way when the bolt is thrown back.
           style={{ opacity: receiptFade }}
-          className="pointer-events-none absolute inset-y-0 left-6 flex items-center font-mono text-[10px] tabular-nums tracking-[0.12em] text-ink-2"
+          className="mono-sm pointer-events-none absolute inset-y-0 left-6 flex items-center tabular-nums text-ink-2"
         >
           {stampMin != null ? formatClock(stampMin) : "set"}
         </motion.span>

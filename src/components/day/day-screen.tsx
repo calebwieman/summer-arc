@@ -64,11 +64,11 @@ function Masthead({
   onSettings: () => void;
 }) {
   return (
-    <header className="flex items-start justify-between gap-3 px-5 pt-2 pb-3">
+    <header className="flex items-start justify-between gap-3 px-5 pt-1 pb-3">
       <div className="min-w-0">
         <p className="kicker truncate">{formatHeaderDate(day.date)}</p>
         {/* Where the day actually stands, at a glance, without a trip anywhere. */}
-        <p className="mt-1.5 font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-3">
+        <p className="mono-xs mt-1.5 text-ink-3">
           <span className="text-ink-2">
             {tally.done}/{tally.total}
           </span>
@@ -78,8 +78,8 @@ function Masthead({
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        {/* The seconds are the proof of life — the now-line moves too slowly to read. */}
-        <span className="font-mono text-[11px] tabular-nums tracking-[0.08em] text-ink-2">
+        {/* The seconds are the proof of life — the now-rail moves too slowly to read. */}
+        <span className="mono-sm tabular-nums text-ink-2">
           {seconds}
         </span>
         <button
@@ -100,25 +100,26 @@ function Masthead({
 function PastLine({ b }: { b: DayBlock }) {
   return (
     <div className="flex items-baseline gap-2.5 py-[3px]">
-      <span className="w-[38px] shrink-0 font-mono text-[9.5px] tabular-nums tracking-[0.06em] text-ink-3">
+      <span className="mono-sm w-[42px] shrink-0 tabular-nums text-ink-3">
         {b.block.start}
       </span>
-      <span className="truncate font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-3">
-        {b.block.label}
-      </span>
+      <span className="mono-xs truncate text-ink-3">{b.block.label}</span>
     </div>
   );
 }
 
 function Past({ blocks }: { blocks: DayBlock[] }) {
   if (blocks.length === 0) return null;
-  const tail = blocks.slice(-3);
-  const head = blocks.slice(0, -3);
+  // Two named lines, not three. The rail is clipped by its container, and a
+  // line sliced through the middle reads as a rendering fault rather than as
+  // context — so the rail has to ask for less room than it is ever given.
+  const tail = blocks.slice(-2);
+  const head = blocks.slice(0, -2);
 
   return (
     <motion.div layout="position" className="px-5">
       {head.length > 0 ? (
-        <p className="truncate py-[3px] font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-3">
+        <p className="mono-xs truncate py-[3px] text-ink-4">
           {head.map((b) => b.block.label).join(" · ")}
         </p>
       ) : null}
@@ -145,12 +146,10 @@ const OPEN_MIN = 12;
 function OpenGap({ minutes }: { minutes: number }) {
   return (
     <div className="mt-1.5 flex items-center gap-2.5">
-      <span className="w-[38px] shrink-0" />
+      <span className="w-[42px] shrink-0" />
       <span className="h-px w-3 bg-line-mid" />
       {/* The most useful line on the screen between two classes. */}
-      <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-ink-3">
-        {formatDuration(minutes)} open
-      </span>
+      <span className="mono-xs text-ink-3">{formatDuration(minutes)} open</span>
     </div>
   );
 }
@@ -165,8 +164,11 @@ function Upcoming({
 }) {
   if (blocks.length === 0) return null;
   const [next, ...rest] = blocks;
-  const soon = rest.slice(0, 3);
-  const after = rest.slice(3);
+  // Two previews, not three — same reason as the past rail. Everything beyond
+  // them collapses into the single condensed line at the foot, which costs one
+  // row instead of three and never gets clipped in half.
+  const soon = rest.slice(0, 2);
+  const after = rest.slice(2);
   // Authored large and scaled down, so growth is a GPU transform, not a reflow.
   const p = approach(next.untilStart);
   const leadGap = prevEndMin == null ? 0 : next.startMin - prevEndMin;
@@ -181,7 +183,7 @@ function Upcoming({
         className="flex items-center gap-2.5"
         style={{ height: upcomingHeight(next.untilStart) * 0.52 }}
       >
-        <span className="w-[38px] shrink-0 font-mono text-[10px] tabular-nums tracking-[0.06em] text-ink-3">
+        <span className="mono-sm w-[42px] shrink-0 tabular-nums text-ink-3">
           {next.block.start}
         </span>
         <motion.span
@@ -192,7 +194,7 @@ function Upcoming({
         >
           {next.block.label}
         </motion.span>
-        <span className="ml-auto shrink-0 font-mono text-[9.5px] tabular-nums tracking-[0.1em] text-ink-3">
+        <span className="mono-sm ml-auto shrink-0 tabular-nums text-ink-3">
           {formatDuration(next.untilStart)}
         </span>
       </motion.div>
@@ -213,7 +215,7 @@ function Upcoming({
               className="flex items-center gap-2.5"
               style={{ height: upcomingHeight(b.untilStart) * 0.42 }}
             >
-              <span className="w-[38px] shrink-0 font-mono text-[9.5px] tabular-nums tracking-[0.06em] text-ink-3">
+              <span className="mono-sm w-[42px] shrink-0 tabular-nums text-ink-3">
                 {b.block.start}
               </span>
               <motion.span
@@ -232,7 +234,7 @@ function Upcoming({
       })}
 
       {after.length > 0 ? (
-        <p className="mt-2 truncate font-mono text-[9px] uppercase tracking-[0.14em] text-ink-3">
+        <p className="mono-xs mt-2 truncate text-ink-4">
           {after.map((b) => b.block.label).join(" · ")}
         </p>
       ) : null}
@@ -276,7 +278,7 @@ function GapNow({
           />
         </div>
       ) : null}
-      <p className="mt-2.5 font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-3">
+      <p className="mono-xs mt-2.5 text-ink-3">
         open · <motion.span>{left}</motion.span> to {label}
       </p>
     </motion.div>
@@ -350,7 +352,7 @@ function Register({
       <button
         type="button"
         onClick={onOpen}
-        className="ml-auto min-h-11 font-mono text-[9px] uppercase tracking-[0.2em] text-ink-3 hover:text-ink-2"
+        className="mono-xs ml-auto min-h-11 text-ink-3 hover:text-ink-2"
       >
         pull for record
       </button>
@@ -400,32 +402,51 @@ function FocusBlock({
   return (
     <motion.section
       layout
-      className="relative mx-5 overflow-hidden rounded-lg border border-line-soft bg-surface px-5 pt-5 pb-6"
+      // shrink-0: the card owns a latch and a field, and a clipped commit
+      // control is worse than a clipped context row. The rails absorb the
+      // squeeze instead.
+      className="relative mx-5 shrink-0 overflow-hidden rounded-lg border border-line-soft bg-surface py-5 pr-4 pl-9"
     >
-      {/* Elapsed wash — ambient progress, never a ring. */}
-      <motion.div
+      {/*
+        The time rail.
+
+        Elapsed progress used to be a full-width wash with a full-width hairline
+        at `now` drawn over the content. Both crossed whatever field happened to
+        sit at the current minute — at 10:49 inside a 10:00–12:20 block that is
+        exactly the deep-work readout, so the line ran through the digits and
+        the wash edge sat on their baseline.
+
+        The rail carries the same three facts in a gutter of its own: filled
+        above for elapsed, empty below for remaining, a dot at now. It cannot
+        collide with type because no type is ever in that column.
+      */}
+      <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 bg-ink/[0.05]"
-        style={{ height: live ? pct : "0%" }}
-      />
-      {/* The now-line. */}
-      {live ? (
-        <motion.div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 z-10 flex items-center"
-          style={{ top: pct }}
-        >
-          <span className="h-px flex-1 bg-accent/45" />
-          <span className="mr-4 ml-2 h-[5px] w-[5px] rounded-pill bg-accent" />
-        </motion.div>
-      ) : null}
+        // line-mid, not line-soft: in dark, line-soft (#262629) against the
+        // card surface (#141417) is invisible, so the rail read as a line that
+        // simply stopped at now, with no sense of how much block was left.
+        className="pointer-events-none absolute inset-y-5 left-4 w-px bg-line-mid"
+      >
+        {live ? (
+          <>
+            <motion.span
+              className="absolute inset-x-0 top-0 block bg-accent/40"
+              style={{ height: pct }}
+            />
+            <motion.span
+              className="absolute -left-[2px] h-[5px] w-[5px] -translate-y-1/2 rounded-pill bg-accent"
+              style={{ top: pct }}
+            />
+          </>
+        ) : null}
+      </div>
 
       <div className="relative">
         <div className="flex items-baseline justify-between gap-3">
-          <span className="font-mono text-[10px] tabular-nums tracking-[0.16em] text-ink-3">
+          <span className="mono-sm tabular-nums text-ink-3">
             {b.block.start} — {b.block.end}
           </span>
-          <span className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-3">
+          <span className="mono-xs shrink-0 text-ink-3">
             {recalled
               ? "recalled"
               : held
@@ -437,7 +458,7 @@ function FocusBlock({
         </div>
 
         {/* Size at low weight: presence without luminance. */}
-        <h1 className="mt-2.5 text-[36px] font-light leading-[0.98] tracking-[-0.03em] text-ink">
+        <h1 className="mt-2.5 text-[32px] font-light leading-[1.02] tracking-[-0.03em] text-ink">
           {b.block.label}
         </h1>
 
@@ -445,17 +466,15 @@ function FocusBlock({
           <button
             type="button"
             onClick={onReturn}
-            className="mt-2 min-h-11 font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-3 hover:text-ink"
+            className="mono-xs mt-2 min-h-11 text-ink-3 hover:text-ink"
           >
             ← back to now
           </button>
         ) : held ? (
-          <p className="mt-2 font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-3">
-            still open — throw it
-          </p>
+          <p className="mono-xs mt-2 text-warn">still open — throw it</p>
         ) : null}
 
-        <div className="mt-6 space-y-6">
+        <div className="mt-5 space-y-5">
           {b.fields.includes("deepWorkMinutes") ? (
             <MinutesField
               value={log?.deepWorkMinutes ?? 0}
@@ -473,7 +492,7 @@ function FocusBlock({
                 onChange={(v) => onPatch({ trainingNote: v })}
               />
               {lastSession ? (
-                <p className="truncate font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-3">
+                <p className="mono-xs truncate text-ink-3">
                   last · {lastSession.note}
                 </p>
               ) : null}
@@ -502,9 +521,7 @@ function FocusBlock({
               A block that has not begun cannot be thrown: otherwise Saturday
               afternoon offers a Lights-out latch that stamps 16:00. */}
           {b.habit && !started ? (
-            <p className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-3">
-              opens {b.block.start}
-            </p>
+            <p className="mono-xs text-ink-3">opens {b.block.start}</p>
           ) : null}
           {b.habit && started ? (
             <Latch
@@ -684,9 +701,14 @@ export function DayScreen() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduced ? { opacity: 0 } : { opacity: 0, y: 16 }}
                 transition={S_PAGE}
-                className="flex h-full flex-col pt-[env(safe-area-inset-top)]"
+                // The extra 12px past the inset is real clearance, not padding
+                // taste: in standalone PWA mode with a black-translucent status
+                // bar the OS paints its own legibility backdrop over the top of
+                // the page, and anything sitting flush against the inset reads
+                // as smeared through it. The date line was landing in that band.
+                className="flex h-full flex-col pt-[calc(env(safe-area-inset-top)+12px)]"
               >
-                <motion.div {...rise(0, reduced)}>
+                <motion.div {...rise(0, reduced)} className="shrink-0">
                   <Masthead
                     day={day}
                     seconds={seconds}
@@ -697,10 +719,19 @@ export function DayScreen() {
                 </motion.div>
 
                 {/* Weighted 1.7:1 so the live block — and its commit — sit low
-                    enough to fall inside a one-handed thumb arc. */}
+                    enough to fall inside a one-handed thumb arc.
+
+                    `overflow-hidden` is load-bearing. These context rails are
+                    the only elastic regions in a fixed h-dvh column, so on a
+                    short screen they are squeezed below their content height —
+                    and without clipping their rows simply spilled out of the
+                    box and painted over whatever came next. That is what put
+                    the week strip on top of SPAN 1115 and the register glyphs
+                    on top of the evening line. Clipped, the same squeeze just
+                    shows fewer rows. */}
                 <motion.div
                   {...rise(1, reduced)}
-                  className="flex min-h-0 flex-[1.7] flex-col justify-end gap-3 pb-1"
+                  className="flex min-h-0 flex-[1.7] flex-col justify-end gap-3 overflow-hidden pb-1"
                 >
                   <Past blocks={past} />
                 </motion.div>
@@ -727,19 +758,17 @@ export function DayScreen() {
                     onReturn={() => setSelected(null)}
                   />
                 ) : (
-                  <section className="mx-5 rounded-lg border border-line-soft bg-surface px-5 py-10 text-center">
+                  <section className="mx-5 shrink-0 rounded-lg border border-line-soft bg-surface px-5 py-10 text-center">
                     <h1 className="text-[32px] font-light leading-none tracking-[-0.03em] text-ink">
                       Day closed
                     </h1>
-                    <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-3">
-                      next up 04:45
-                    </p>
+                    <p className="mono-xs mt-3 text-ink-3">next up 04:45</p>
                   </section>
                 )}
 
                 <motion.div
                   {...rise(3, reduced)}
-                  className="flex min-h-0 flex-1 flex-col justify-start gap-3 pt-3"
+                  className="flex min-h-0 flex-1 flex-col justify-start gap-3 overflow-hidden pt-3"
                 >
                   <Upcoming
                     blocks={upcoming}
@@ -747,7 +776,12 @@ export function DayScreen() {
                   />
                 </motion.div>
 
-                <motion.div {...rise(4, reduced)} className="space-y-4 pb-3">
+                {/* The register is the one thing that must never be squeezed
+                    off: it is the only route to a habit whose block has closed. */}
+                <motion.div
+                  {...rise(4, reduced)}
+                  className="shrink-0 space-y-3 pb-3"
+                >
                   {week.length > 0 ? <WeekStrip week={week} /> : null}
                   <Register
                     day={day}
@@ -785,7 +819,7 @@ export function DayScreen() {
                   <button
                     type="button"
                     onClick={() => setMode("day")}
-                    className="min-h-11 text-center font-mono text-[9px] uppercase tracking-[0.2em] text-ink-3 hover:text-ink-2"
+                    className="mono-xs min-h-11 text-center text-ink-3 hover:text-ink-2"
                   >
                     pull up to return
                   </button>

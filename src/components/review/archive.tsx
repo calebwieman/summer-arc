@@ -135,7 +135,7 @@ export function Archive() {
         }}
       />
 
-      <p className="mt-4 min-h-4 text-center font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-3">
+      <p className="mono-xs mt-4 min-h-4 text-center text-ink-3">
         {status ?? "backup writes a file you can keep"}
       </p>
     </section>

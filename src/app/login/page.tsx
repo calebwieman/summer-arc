@@ -140,7 +140,7 @@ export default function LoginPage() {
           id="pw-status"
           role="status"
           aria-live="polite"
-          className="mt-5 min-h-4 font-mono text-[9.5px] uppercase tracking-[0.18em]"
+          className="mono-xs mt-5 min-h-4"
         >
           <span className={state === "wrong" ? "text-bad" : "text-ink-3"}>
             {state === "wrong" ? "not that one" : "once per device"}

@@ -5,8 +5,12 @@ import { AUTH_COOKIE, PUBLIC_PATHS, safeEqual, sessionToken } from "@/lib/auth";
  * Edge gate. Every request for the app is checked here, before any page is
  * served, so the password check cannot be skipped by reading the bundle or
  * poking at localStorage the way a client-side gate can.
+ *
+ * Named `proxy` in `src/proxy.ts`: the `middleware` file convention is
+ * deprecated in Next 16 and only the name changed — the request contract,
+ * the matcher config and NextResponse are identical.
  */
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/fonts")) {

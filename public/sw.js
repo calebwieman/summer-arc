@@ -6,7 +6,9 @@
 // Bump on every asset change — activate deletes all other caches, which is the
 // only way an already-installed PWA lets go of stale icons and routes.
 // v5 dropped the old Summer entries; v6 ships the new mark.
-const CACHE_NAME = "standard-cache-v7";
+// v8 ships the mobile layout repair — an installed PWA holding the cached "/"
+// shell would otherwise keep serving the overlapping layout.
+const CACHE_NAME = "standard-cache-v8";
 const APP_SHELL = [
   "/",
   "/manifest.json",

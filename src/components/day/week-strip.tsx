@@ -77,8 +77,8 @@ export function WeekStrip({ week }: { week: WeekDay[] }) {
         {week.map((d) => (
           <span
             key={d.date}
-            className={`flex-1 text-center font-mono text-[8.5px] uppercase tracking-[0.1em] ${
-              d.isToday ? "text-ink-2" : "text-ink-3"
+            className={`mono-xs flex-1 text-center ${
+              d.isToday ? "text-ink-2" : "text-ink-4"
             }`}
           >
             {d.dow}

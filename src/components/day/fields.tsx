@@ -1,7 +1,6 @@
 "use client";
 
 import { motion, useReducedMotion } from "motion/react";
-import { X } from "lucide-react";
 import { haptic } from "@/lib/haptics";
 
 const TAP = { type: "spring", stiffness: 520, damping: 32 } as const;
@@ -30,51 +29,58 @@ export function MinutesField({
     onChange(Math.max(0, value + n));
   };
 
+  const showSecondRow = blockMinutes >= 60 || value > 0;
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       <Label>Deep work logged</Label>
-      <div className="flex items-baseline gap-2">
+      {/* The quick-adds ride the readout row rather than sitting under it. The
+          readout is three characters wide at most and left the rest of the line
+          empty, while the chips below overran the card's content width by a
+          dozen pixels and wrapped "full block" onto a row of its own — which
+          cost ~56px of height the fixed-height column could not spare. */}
+      <div className="flex items-center gap-2">
         <motion.span
           key={value}
           initial={reduced ? false : { y: -6, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={TAP}
-          className="font-mono text-[30px] font-bold tabular-nums leading-none tracking-[-0.02em] text-ink"
+          className="font-mono text-[26px] font-bold tabular-nums leading-none tracking-[-0.02em] text-ink"
         >
           {value}
         </motion.span>
-        <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-3">
-          min
-        </span>
-        {value > 0 ? (
-          <button
-            type="button"
-            aria-label="Clear logged minutes"
-            onClick={() => {
-              haptic(6);
-              onChange(0);
-            }}
-            className="ml-auto flex h-11 w-11 items-center justify-center rounded-pill text-ink-3 hover:text-ink"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
+        <span className="mono-xs text-ink-3">min</span>
+        <div className="ml-auto flex gap-1.5">
+          {[15, 30, 60].map((n) => (
+            <Chip key={n} onPress={() => add(n)}>
+              +{n}
+            </Chip>
+          ))}
+        </div>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {[15, 30, 60].map((n) => (
-          <Chip key={n} onPress={() => add(n)}>
-            +{n}
-          </Chip>
-        ))}
-        {/* Only offered when the host block is plausibly a work session. On
-            weekends this field falls back to Wind Down, where "full block · 45"
-            would be an offer to log 45 minutes of winding down as deep work. */}
-        {blockMinutes >= 60 ? (
-          <Chip onPress={() => { haptic(10); onChange(blockMinutes); }}>
-            full block · {blockMinutes}
-          </Chip>
-        ) : null}
-      </div>
+      {showSecondRow ? (
+        <div className="flex gap-1.5">
+          {/* Only offered when the host block is plausibly a work session. On
+              weekends this field falls back to Wind Down, where "full block · 45"
+              would be an offer to log 45 minutes of winding down as deep work. */}
+          {blockMinutes >= 60 ? (
+            <Chip onPress={() => { haptic(10); onChange(blockMinutes); }}>
+              full block · {blockMinutes}
+            </Chip>
+          ) : null}
+          {value > 0 ? (
+            <Chip
+              label="Clear logged minutes"
+              onPress={() => {
+                haptic(6);
+                onChange(0);
+              }}
+            >
+              clear
+            </Chip>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -82,17 +88,24 @@ export function MinutesField({
 function Chip({
   children,
   onPress,
+  label,
 }: {
   children: React.ReactNode;
   onPress: () => void;
+  /** Accessible name, when the visible text is not self-explanatory. */
+  label?: string;
 }) {
   return (
     <motion.button
       type="button"
+      aria-label={label}
       onClick={onPress}
       whileTap={{ scale: 0.94 }}
       transition={TAP}
-      className="min-h-11 rounded-pill border border-line-mid px-4 font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-2 hover:border-accent hover:text-ink"
+      // px-3, not px-4: at the card's content width the four chips totalled
+      // ~313px against ~299px available, so "full block" wrapped to a second
+      // row and cost the layout 56px it did not have.
+      className="mono-xs min-h-11 rounded-pill border border-line-mid px-3 text-ink-2 hover:border-accent hover:text-ink"
     >
       {children}
     </motion.button>
@@ -166,7 +179,7 @@ export function ShippedField({
         }}
         whileTap={{ scale: 0.97 }}
         transition={TAP}
-        className={`min-h-12 w-full rounded-sm border px-4 font-mono text-[11px] uppercase tracking-[0.18em] transition-colors ${
+        className={`mono-xs min-h-12 w-full rounded-sm border px-4 transition-colors ${
           value
             ? "border-accent bg-ink/[0.10] text-ink"
             : "border-line-soft text-ink-3"
