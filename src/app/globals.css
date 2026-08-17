@@ -50,6 +50,26 @@
   --r-btn: var(--r-sm);
   --r-input: var(--r-sm);
 
+  /*
+    Top-of-screen clearance, in one place.
+
+    `--safe-top` is the OS safe area, floored so a device without one still
+    gets a sane gap.
+
+    `--status-band` is how far the OS legibility treatment reaches *past* that
+    inset. It is not the status bar height — measured off a device screenshot,
+    the band ran to roughly 90pt on an iPhone 16 Pro whose inset is 59pt, so it
+    overhangs by about 30pt. Content inside it renders smeared rather than
+    crisp, which is why the first two attempts at this (+12px, then +24px) were
+    still landing the date line inside it.
+
+    THIS IS THE NUMBER TO TUNE. Raise it if any masthead content still reads
+    blurred; lower it to win back vertical space if the band is smaller on
+    another device. Everything above derives from it.
+  */
+  --safe-top: max(env(safe-area-inset-top, 0px), 8px);
+  --status-band: 36px;
+
   --gutter: clamp(18px, 3.2vw, 44px);
   --ease: cubic-bezier(0.65, 0.05, 0.36, 1);
   --shadow: 6px 6px 0 var(--shadow-col);
@@ -303,37 +323,26 @@
     Status bar clearance.
 
     In standalone mode with a black-translucent status bar, iOS draws the page
-    *under* the status bar, and modern iOS paints its own legibility backdrop
-    over that band which samples whatever sits beneath it — so any content up
-    there renders smeared rather than crisp.
+    *under* the status bar, and paints its own legibility backdrop over a band
+    at the top which samples whatever sits beneath it — so any content up there
+    renders smeared rather than crisp.
 
-    Two independent defences, because the exact band height is a platform
-    detail we cannot measure from here:
-      1. `.status-guard` paints flat --bg across the band, so the backdrop only
-         ever has a solid colour to sample.
-      2. `.app-top` keeps real content well clear of it. The 24px is margin
-         over the inset, not decoration — tune this one number if any of the
-         masthead still lands in the band.
+    Clearance is the whole fix; both classes below derive from --status-band.
+    An earlier pass also painted an opaque bar across the band so the backdrop
+    would only ever have flat colour to sample. That was redundant: once the
+    clearance is right the band holds nothing but the page background and the
+    blueprint grid, and blurring those is imperceptible. All the bar actually
+    did was hide the top of the grid, which is where the radial mask makes it
+    strongest.
   */
-  .status-guard {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: max(env(safe-area-inset-top, 0px), 8px);
-    background: var(--bg);
-    /* Above the sheet layer: the band should stay flat even with a sheet up. */
-    z-index: 60;
-    pointer-events: none;
-  }
 
   .app-top {
-    padding-top: calc(max(env(safe-area-inset-top, 0px), 8px) + 24px);
+    padding-top: calc(var(--safe-top) + var(--status-band) + 8px);
   }
 
   /* Same clearance for the surfaces that scroll their own content. */
   .app-top-scroll {
-    padding-top: calc(max(env(safe-area-inset-top, 0px), 8px) + 16px);
+    padding-top: calc(var(--safe-top) + var(--status-band) + 4px);
   }
 
   /* Hard-bordered panel. Depth is displacement + zero-blur shadow. */

@@ -80,10 +80,6 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="min-h-dvh bg-bg font-display text-ink">
-        {/* Flat colour behind the status bar — see .status-guard in globals.css.
-            Sits outside the surfaces so it holds across the day, the record,
-            the history and anything opened over them. */}
-        <div className="status-guard" aria-hidden />
         <MotionRoot>
           <ThemeProvider>
             {children}
