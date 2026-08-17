@@ -115,10 +115,12 @@ export default function LoginPage() {
               setPassword(e.target.value);
               if (state === "wrong") setState("idle");
             }}
-            placeholder="XXXX-XXXX-XXXX"
+            placeholder="password"
             aria-invalid={state === "wrong"}
             aria-describedby="pw-status"
-            className={`w-full rounded-sm border bg-surface-2 px-4 py-4 text-center font-mono text-[16px] tracking-[0.14em] text-ink uppercase placeholder:text-ink-3 placeholder:tracking-[0.14em] outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+            // No uppercase transform: the password is not a formatted code, and
+            // forcing case on a masked field only misleads.
+            className={`w-full rounded-sm border bg-surface-2 px-4 py-4 text-center font-mono text-[16px] tracking-[0.08em] text-ink placeholder:text-ink-3 placeholder:tracking-[0.16em] outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
               state === "wrong" ? "border-bad" : "border-line-mid"
             }`}
           />
