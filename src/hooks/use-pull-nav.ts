@@ -43,6 +43,8 @@ export function usePullNav(
     let dy = 0;
     let armed: 0 | 1 | -1 = 0;
     let tracking = false;
+    /** Direction is settled on the first move and held for the gesture. */
+    let decided = false;
     /**
      * Which directions this gesture is allowed to navigate, decided once when
      * the finger lands. Re-testing the edge on every move turned an ordinary
@@ -63,6 +65,7 @@ export function usePullNav(
       startY = e.touches[0].clientY;
       dy = 0;
       armed = 0;
+      decided = false;
       tracking = true;
       canDown = atTop();
       canUp = atBottom();
@@ -72,13 +75,28 @@ export function usePullNav(
       if (!tracking || e.touches.length !== 1) return;
       dy = e.touches[0].clientY - startY;
 
-      if (dy > 0 && canDown && onPullDown) armed = 1;
-      else if (dy < 0 && canUp && onPullUp) armed = -1;
-      else armed = 0;
+      /*
+        Decide once, on the first move that carries any vertical intent.
 
-      // Only claim the gesture once it is genuinely a pull at an edge, so an
+        iOS commits a touch to scrolling on the *first* touchmove it sees
+        unprevented, and will not hand it back however many later moves call
+        preventDefault. Waiting for a few pixels of travel before claiming the
+        gesture therefore loses it outright on Safari — which Chromium forgives,
+        so it passed here and failed on a phone.
+
+        Deciding on the first move also stops the direction flipping mid-drag.
+      */
+      if (!decided) {
+        if (dy === 0) return;
+        decided = true;
+        if (dy > 0 && canDown && onPullDown) armed = 1;
+        else if (dy < 0 && canUp && onPullUp) armed = -1;
+        else armed = 0;
+      }
+
+      // Claim every move of a gesture that is genuinely a pull at an edge; an
       // ordinary scroll away from the edge is never interfered with.
-      if (armed !== 0 && Math.abs(dy) > 4) e.preventDefault();
+      if (armed !== 0) e.preventDefault();
     };
 
     const onEnd = () => {
@@ -88,6 +106,7 @@ export function usePullNav(
       }
       tracking = false;
       armed = 0;
+      decided = false;
       dy = 0;
     };
 

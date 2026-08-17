@@ -587,6 +587,38 @@ function FocusBlock({
   );
 }
 
+
+/**
+ * Moving between surfaces without the gesture.
+ *
+ * These used to be bare lowercase lines reading "pull down for history", which
+ * describe a gesture rather than offering a control — easy to read as a caption
+ * and never tap. The pull is the intended way through; this is the way through
+ * when the pull does not land, so it has to look pressable.
+ */
+function SurfaceNav({
+  items,
+}: {
+  items: { label: string; onPress: () => void }[];
+}) {
+  return (
+    <div className="flex justify-center gap-2 pb-4">
+      {items.map((it) => (
+        <motion.button
+          key={it.label}
+          type="button"
+          onClick={it.onPress}
+          whileTap={{ scale: 0.96 }}
+          transition={{ type: "spring", stiffness: 520, damping: 32 }}
+          className="mono-xs min-h-11 rounded-pill border border-line-mid px-4 text-ink-2 hover:border-accent hover:text-ink"
+        >
+          {it.label}
+        </motion.button>
+      ))}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ screen */
 
 export function DayScreen() {
@@ -916,23 +948,13 @@ export function DayScreen() {
                   </h1>
                   <p className="meta mt-1.5">last 14 days · never miss twice</p>
                 </div>
+                <SurfaceNav
+                  items={[
+                    { label: "↑ today", onPress: () => setMode("day") },
+                    { label: "history ↓", onPress: () => setMode("history") },
+                  ]}
+                />
                 <FourteenDay series={series} />
-                <div className="flex flex-col items-center gap-1 pb-8">
-                  <button
-                    type="button"
-                    onClick={() => setMode("history")}
-                    className="mono-xs min-h-11 text-center text-ink-2 hover:text-ink"
-                  >
-                    pull down for history
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMode("day")}
-                    className="mono-xs min-h-11 text-center text-ink-3 hover:text-ink-2"
-                  >
-                    pull up to return
-                  </button>
-                </div>
               </motion.div>
             ) : (
               <motion.div
@@ -955,18 +977,20 @@ export function DayScreen() {
                   </h1>
                   <p className="meta mt-1.5">tap any day to fill it in</p>
                 </div>
+                {/* Above the content, not below it: this surface is long, and a
+                    control at the foot means scrolling the whole calendar and
+                    year trace to get back. */}
+                <SurfaceNav
+                  items={[
+                    { label: "↑ record", onPress: () => setMode("record") },
+                    { label: "↑↑ today", onPress: () => setMode("day") },
+                  ]}
+                />
                 <HistoryScreen
                   today={clock.date}
                   version={dataVersion}
                   onPick={setPickedDate}
                 />
-                <button
-                  type="button"
-                  onClick={() => setMode("record")}
-                  className="mono-xs min-h-11 pb-8 text-center text-ink-3 hover:text-ink-2"
-                >
-                  pull up to return
-                </button>
               </motion.div>
             )}
           </AnimatePresence>
