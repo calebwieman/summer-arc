@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <rect width="64" height="64" fill="#0b0b0d"/>
+  <!-- stem below the crossing: what is still ahead -->
+  <rect x="20" y="28.16" width="4.8" height="26.24" fill="#f4f4f5" opacity="0.32" rx="2.4"/>
+  <rect x="13.279999999999998" y="36.416" width="4.8" height="1.408" fill="#f4f4f5" opacity="0.5" rx="0.704"/>
+  <rect x="15.008" y="42.816" width="3.072" height="1.408" fill="#f4f4f5" opacity="0.5" rx="0.704"/>
+  <rect x="13.279999999999998" y="49.216" width="4.8" height="1.408" fill="#f4f4f5" opacity="0.5" rx="0.704"/>
+  <!-- stem above the crossing: what is already behind -->
+  <rect x="20" y="9.6" width="4.8" height="18.560000000000002" fill="#f4f4f5" rx="2.4"/>
+  <!-- the now-line -->
+  <rect x="12.16" y="25.76" width="40.32" height="4.8" fill="#f4f4f5" rx="2.4"/>
+</svg>

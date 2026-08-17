@@ -1,18 +1,20 @@
-// Summer service worker
+// Standard service worker
 // Strategy:
 //  - Navigation (HTML routes): network-first, fall back to cache, then "/"
 //  - Static assets (same-origin GET): stale-while-revalidate
 //  - Bump CACHE_NAME to force-refresh clients
-const CACHE_NAME = "summer-cache-v4";
+// Bump on every asset change — activate deletes all other caches, which is the
+// only way an already-installed PWA lets go of stale icons and routes.
+// v5 dropped the old Summer entries; v6 ships the new mark.
+const CACHE_NAME = "standard-cache-v6";
 const APP_SHELL = [
   "/",
-  "/history",
-  "/review",
-  "/settings",
   "/manifest.json",
   "/icon-192.png",
   "/icon-512.png",
-  "/verses.json",
+  "/apple-touch-icon.png",
+  "/favicon.svg",
+  "/favicon-32.png",
 ];
 
 self.addEventListener("install", (event) => {

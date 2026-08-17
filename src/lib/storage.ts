@@ -1,19 +1,12 @@
-import { eachDayOfInterval, format, parseISO } from "date-fns";
-import { DEFAULT_HABITS } from "./today";
-import type { DailyLog, HabitDef, WeeklyReview } from "./types";
+import { eachDayOfInterval, format, parseISO, subDays } from "date-fns";
+import { isHabitScheduled } from "./schedule";
+import { HABIT_KEYS, HABIT_LABELS, getTodayString } from "./today";
+import type { DailyLog, HabitKey } from "./types";
 
-const DAILY_PREFIX = "summer:daily:";
-const WEEKLY_PREFIX = "summer:weekly:";
-const HABITS_KEY = "summer:habits";
-const LAST_EXPORT_KEY = "summer:last-export";
-const VERSE_ENABLED_KEY = "summer:verse-enabled";
+const DAILY_PREFIX = "standard:daily:";
 
 function dailyKey(date: string) {
   return `${DAILY_PREFIX}${date}`;
-}
-
-function weeklyKey(weekStart: string) {
-  return `${WEEKLY_PREFIX}${weekStart}`;
 }
 
 function read<T>(key: string): T | null {
@@ -53,10 +46,7 @@ export function saveDailyLog(log: DailyLog): void {
 }
 
 export function getDateRange(start: string, end: string): DailyLog[] {
-  const days = eachDayOfInterval({
-    start: parseISO(start),
-    end: parseISO(end),
-  });
+  const days = eachDayOfInterval({ start: parseISO(start), end: parseISO(end) });
   const logs: DailyLog[] = [];
   for (const day of days) {
     const log = getDailyLog(format(day, "yyyy-MM-dd"));
@@ -65,128 +55,121 @@ export function getDateRange(start: string, end: string): DailyLog[] {
   return logs;
 }
 
-export function getWeeklyReview(weekStart: string): WeeklyReview | null {
-  return read<WeeklyReview>(weeklyKey(weekStart));
+/** ISO date of the earliest log, or null when nothing has been logged yet. */
+function earliestLogDate(): string | null {
+  const logs = getAllDailyLogs();
+  return logs.length > 0 ? logs[0].date : null;
 }
 
-export function saveWeeklyReview(review: WeeklyReview): void {
-  write(weeklyKey(review.weekStart), review);
+function wasDone(date: string, habit: HabitKey): boolean {
+  return getDailyLog(date)?.habits?.[habit] === true;
 }
 
-function isValidHabitList(value: unknown): value is HabitDef[] {
-  return (
-    Array.isArray(value) &&
-    value.every(
-      (h) =>
-        h &&
-        typeof h === "object" &&
-        typeof (h as HabitDef).id === "string" &&
-        typeof (h as HabitDef).label === "string",
-    )
+/**
+ * A day counts toward a habit's denominator only when it is on or after the
+ * first day anything was logged (so adopting the app mid-window isn't scored as
+ * a pile of misses) and the habit is actually scheduled that day — Sunday is
+ * not a training miss, and the weekend is not a deep-work miss.
+ */
+function isScoredDay(date: string, habit: HabitKey, since: string): boolean {
+  return date >= since && isHabitScheduled(habit, date);
+}
+
+/**
+ * Share of scheduled days in the trailing window where the habit was done,
+ * as 0–1. Today is excluded — it isn't over yet, and scoring an in-progress day
+ * as a miss is just noise. A scheduled day with no log counts as a miss.
+ * Returns 0 when there is nothing to score yet.
+ */
+export function getRollingRate(habitKey: HabitKey, days = 14): number {
+  const since = earliestLogDate();
+  if (!since) return 0;
+
+  const yesterday = subDays(parseISO(getTodayString()), 1);
+  let done = 0;
+  let scored = 0;
+
+  for (let i = 0; i < days; i++) {
+    const date = format(subDays(yesterday, i), "yyyy-MM-dd");
+    if (!isScoredDay(date, habitKey, since)) continue;
+    scored++;
+    if (wasDone(date, habitKey)) done++;
+  }
+
+  return scored === 0 ? 0 : done / scored;
+}
+
+/** How far back `hasMissedTwice` will look to find two scheduled days. */
+const MISS_LOOKBACK_DAYS = 60;
+
+/**
+ * True only when the two most recent completed scheduled days were both missed.
+ * This is the only failure signal in the app — there are no streaks. Today is
+ * excluded, and unscheduled days are skipped rather than counted as a break, so
+ * missing Saturday's long run and then Monday's run reads as twice in a row.
+ */
+export function hasMissedTwice(habitKey: HabitKey): boolean {
+  const since = earliestLogDate();
+  if (!since) return false;
+
+  const yesterday = subDays(parseISO(getTodayString()), 1);
+  const recent: boolean[] = [];
+
+  for (let i = 0; i < MISS_LOOKBACK_DAYS && recent.length < 2; i++) {
+    const date = format(subDays(yesterday, i), "yyyy-MM-dd");
+    if (!isScoredDay(date, habitKey, since)) continue;
+    recent.push(wasDone(date, habitKey));
+  }
+
+  return recent.length === 2 && !recent[0] && !recent[1];
+}
+
+/**
+ * The most recent session note before `beforeDate`. Shown while logging today's
+ * training so the last workout is in view when you write this one — the thing a
+ * runner actually wants at the moment of entry.
+ */
+export function lastTrainingNote(
+  beforeDate: string,
+): { date: string; note: string } | null {
+  const prior = getAllDailyLogs().filter(
+    (l) => l.date < beforeDate && l.trainingNote?.trim(),
   );
-}
-
-export function getHabits(): HabitDef[] {
-  const stored = read<HabitDef[]>(HABITS_KEY);
-  if (isValidHabitList(stored) && stored.length > 0) return stored;
-  return DEFAULT_HABITS;
-}
-
-export function saveHabits(habits: HabitDef[]): void {
-  write(HABITS_KEY, habits);
-}
-
-/** Last-export timestamp (ISO). Updated whenever the user exports JSON or CSV. */
-export function getLastExportAt(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(LAST_EXPORT_KEY);
-}
-
-export function setLastExportAt(iso: string = new Date().toISOString()): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(LAST_EXPORT_KEY, iso);
-}
-
-export function getVerseEnabled(): boolean {
-  if (typeof window === "undefined") return true;
-  const raw = window.localStorage.getItem(VERSE_ENABLED_KEY);
-  if (raw === null) return true;
-  return raw === "true";
-}
-
-export function setVerseEnabled(enabled: boolean): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(VERSE_ENABLED_KEY, String(enabled));
+  const last = prior[prior.length - 1];
+  return last ? { date: last.date, note: last.trainingNote.trim() } : null;
 }
 
 export interface BackupBundle {
-  schema: 1 | 2;
+  schema: 3;
   exportedAt: string;
   daily: Record<string, DailyLog>;
-  weekly: Record<string, WeeklyReview>;
-  habits?: HabitDef[];
 }
 
 export function exportBackup(): BackupBundle {
   const daily: Record<string, DailyLog> = {};
-  const weekly: Record<string, WeeklyReview> = {};
-  if (typeof window === "undefined") {
-    return { schema: 2, exportedAt: new Date().toISOString(), daily, weekly };
-  }
-  for (let i = 0; i < window.localStorage.length; i++) {
-    const key = window.localStorage.key(i);
-    if (!key) continue;
-    if (key.startsWith(DAILY_PREFIX)) {
-      const log = read<DailyLog>(key);
-      if (log) daily[log.date] = log;
-    } else if (key.startsWith(WEEKLY_PREFIX)) {
-      const review = read<WeeklyReview>(key);
-      if (review) weekly[review.weekStart] = review;
-    }
-  }
-  return {
-    schema: 2,
-    exportedAt: new Date().toISOString(),
-    daily,
-    weekly,
-    habits: getHabits(),
-  };
+  for (const log of getAllDailyLogs()) daily[log.date] = log;
+  return { schema: 3, exportedAt: new Date().toISOString(), daily };
 }
 
 export function importBackup(
   bundle: unknown,
   { merge = true }: { merge?: boolean } = {},
-): { daily: number; weekly: number } {
-  if (typeof window === "undefined") return { daily: 0, weekly: 0 };
+): { daily: number } {
+  if (typeof window === "undefined") return { daily: 0 };
   if (!bundle || typeof bundle !== "object") throw new Error("Invalid backup file");
   const b = bundle as Partial<BackupBundle>;
   if (!b.daily || typeof b.daily !== "object") throw new Error("Invalid backup file");
 
   if (!merge) clearAllLogs();
 
-  if (isValidHabitList(b.habits) && b.habits.length > 0) {
-    saveHabits(b.habits);
-  }
-
-  let dailyCount = 0;
+  let count = 0;
   for (const [date, log] of Object.entries(b.daily)) {
     if (log && typeof log === "object" && typeof date === "string") {
       write(dailyKey(date), log);
-      dailyCount += 1;
+      count += 1;
     }
   }
-
-  let weeklyCount = 0;
-  if (b.weekly && typeof b.weekly === "object") {
-    for (const [weekStart, review] of Object.entries(b.weekly)) {
-      if (review && typeof review === "object" && typeof weekStart === "string") {
-        write(weeklyKey(weekStart), review);
-        weeklyCount += 1;
-      }
-    }
-  }
-
-  return { daily: dailyCount, weekly: weeklyCount };
+  return { daily: count };
 }
 
 export function clearAllLogs(): void {
@@ -194,54 +177,28 @@ export function clearAllLogs(): void {
   const keysToRemove: string[] = [];
   for (let i = 0; i < window.localStorage.length; i++) {
     const key = window.localStorage.key(i);
-    if (key && (key.startsWith(DAILY_PREFIX) || key.startsWith(WEEKLY_PREFIX))) {
-      keysToRemove.push(key);
-    }
+    if (key && key.startsWith(DAILY_PREFIX)) keysToRemove.push(key);
   }
   for (const key of keysToRemove) window.localStorage.removeItem(key);
 }
 
-/** Build a CSV of all daily logs. Habit columns use current habit labels. */
+/** Flat CSV of every daily log, one row per day. */
 export function exportCsv(): string {
-  const habits = getHabits();
-  const logs = getAllDailyLogs();
   const cols = [
     "date",
-    "mood",
-    "rest_day",
-    "cold_calls",
-    "run_miles",
-    "plunge_minutes",
-    "sleep_hours",
-    "bible_reading",
-    "priority_1",
-    "priority_2",
-    "priority_3",
-    "win",
-    "lesson",
-    "run_notes",
-    "am_lift_notes",
-    "pm_lift_notes",
-    ...habits.map((h) => `habit:${h.label}`),
+    "deep_work_minutes",
+    "content_shipped",
+    "training_note",
+    "note",
+    ...HABIT_KEYS.map((k) => `habit:${HABIT_LABELS[k]}`),
   ];
-  const rows = logs.map((log) => [
+  const rows = getAllDailyLogs().map((log) => [
     log.date,
-    log.mood ?? "",
-    log.restDay ? "1" : "",
-    log.coldCalls || "",
-    log.runMiles || "",
-    log.plungeMinutes || "",
-    log.sleepHours || "",
-    log.bibleReading ?? "",
-    log.top3Priorities[0] ?? "",
-    log.top3Priorities[1] ?? "",
-    log.top3Priorities[2] ?? "",
-    log.win ?? "",
-    log.lesson ?? "",
-    log.runNotes ?? "",
-    log.amLiftNotes ?? "",
-    log.pmLiftNotes ?? "",
-    ...habits.map((h) => (log.habits[h.id] ? "1" : "")),
+    log.deepWorkMinutes || "",
+    log.contentShipped ? "1" : "",
+    log.trainingNote ?? "",
+    log.note ?? "",
+    ...HABIT_KEYS.map((k) => (log.habits?.[k] ? "1" : "")),
   ]);
   return [cols, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }

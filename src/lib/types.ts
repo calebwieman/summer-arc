@@ -1,45 +1,27 @@
-/** A user-defined habit. `id` is stable and used as the key in DailyLog.habits. */
-export interface HabitDef {
-  id: string;
-  label: string;
-  /**
-   * Weekdays this habit is scheduled (0=Sun..6=Sat). Undefined or empty = every day.
-   * Days outside the schedule don't show on Today and don't count against streaks.
-   */
-  weekdays?: number[];
-  /** Target completions per week. Undefined = no target (display as "every day"). */
-  weeklyTarget?: number;
-}
-
-/** Completion map keyed by HabitDef.id. */
-export type DailyHabits = Record<string, boolean>;
+/**
+ * The five tracked habits. This union is closed on purpose — habits are no
+ * longer user-editable, and every one of them is anchored to a block in
+ * `lib/schedule.ts`.
+ */
+export type HabitKey =
+  | "lightsOut"
+  | "wake"
+  | "phoneOff"
+  | "deepWork"
+  | "training";
 
 export interface DailyLog {
+  /** YYYY-MM-DD */
   date: string;
-  habits: DailyHabits;
-  coldCalls: number;
-  runMiles: number;
-  runNotes: string;
-  amLiftNotes: string;
-  pmLiftNotes: string;
-  plungeMinutes: number;
-  sleepHours: number;
-  win: string;
-  lesson: string;
-  top3Priorities: [string, string, string];
-  /** 1–5 self-rated mood/energy. 0 or undefined = unset. */
-  mood?: number;
-  /** Free-text Bible reading (e.g. "John 3", "Psalm 23, Prov 4"). */
-  bibleReading?: string;
-  /** Rest day marker: streak continues but the day isn't required to be filled. */
-  restDay?: boolean;
-  /** Compressed base64 photo data URL (~50KB target). */
-  photoDataUrl?: string;
-}
-
-export interface WeeklyReview {
-  weekStart: string;
-  biggestWin: string;
-  biggestLesson: string;
-  changeNextWeek: string;
+  habits: Record<HabitKey, boolean>;
+  deepWorkMinutes: number;
+  trainingNote: string;
+  contentShipped: boolean;
+  note: string;
+  /**
+   * Minute-of-day each habit was committed. Additive and optional — the shape
+   * above is unchanged, and every reader treats a missing stamp as unknown.
+   * Powers the "done 04:52" receipt and, over time, wake-time drift.
+   */
+  stamps?: Partial<Record<HabitKey, number>>;
 }

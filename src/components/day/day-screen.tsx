@@ -1,0 +1,724 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AnimatePresence,
+  LayoutGroup,
+  animate,
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  useTransform,
+} from "motion/react";
+import { useClock } from "@/hooks/use-clock";
+import { buildDay, type DayBlock, type DayModel } from "@/lib/day";
+import { approach, upcomingHeight } from "@/lib/layout";
+import { buildHabitSeries } from "@/lib/series";
+import { getDailyLog, lastTrainingNote, saveDailyLog } from "@/lib/storage";
+import { HABIT_LABELS, formatHeaderDate, makeEmptyLog } from "@/lib/today";
+import { formatClock, formatDuration } from "@/lib/clock";
+import type { DailyLog, HabitKey } from "@/lib/types";
+import { Archive } from "@/components/review/archive";
+import { FourteenDay } from "@/components/review/fourteen-day";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { HabitGlyph } from "./habit-glyph";
+import { Latch } from "./latch";
+import { MinutesField, NoteField, ShippedField } from "./fields";
+
+const PULL_COMMIT = 96;
+const S_PAGE = { type: "spring", stiffness: 300, damping: 34, mass: 0.9 } as const;
+const S_SNAP = { type: "spring", stiffness: 400, damping: 32, mass: 1 } as const;
+
+/* ---------------------------------------------------------------- masthead */
+
+function Masthead({ day, seconds }: { day: DayModel; seconds: string }) {
+  return (
+    <header className="flex items-baseline justify-between gap-3 px-5 pt-2 pb-3">
+      <div className="min-w-0">
+        <p className="kicker truncate">{formatHeaderDate(day.date)}</p>
+        <p className="mt-1 font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-3">
+          ends {day.blocks.length ? day.blocks[day.blocks.length - 1].block.end : "—"}
+        </p>
+      </div>
+      {/* The seconds are the proof of life — the now-line moves too slowly to read. */}
+      <span className="shrink-0 font-mono text-[11px] tabular-nums tracking-[0.08em] text-ink-2">
+        {seconds}
+      </span>
+    </header>
+  );
+}
+
+/* -------------------------------------------------------------------- past */
+
+function PastLine({ b }: { b: DayBlock }) {
+  return (
+    <div className="flex items-baseline gap-2.5 py-[3px]">
+      <span className="w-[38px] shrink-0 font-mono text-[9.5px] tabular-nums tracking-[0.06em] text-ink-3">
+        {b.block.start}
+      </span>
+      <span className="truncate font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-3">
+        {b.block.label}
+      </span>
+    </div>
+  );
+}
+
+function Past({ blocks }: { blocks: DayBlock[] }) {
+  if (blocks.length === 0) return null;
+  const tail = blocks.slice(-2);
+  const head = blocks.slice(0, -2);
+
+  return (
+    <motion.div layout="position" className="px-5">
+      {head.length > 0 ? (
+        <p className="truncate py-[3px] font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-3">
+          {head.map((b) => b.block.label).join(" · ")}
+        </p>
+      ) : null}
+      {tail.map((b) => (
+        <PastLine key={b.index} b={b} />
+      ))}
+      <div className="mt-2 h-px w-6 bg-line-mid" />
+    </motion.div>
+  );
+}
+
+/* ---------------------------------------------------------------- upcoming */
+
+/** Dead air worth naming. Below this it is just walking time. */
+const OPEN_MIN = 12;
+
+function OpenGap({ minutes }: { minutes: number }) {
+  return (
+    <div className="mt-1.5 flex items-center gap-2.5">
+      <span className="w-[38px] shrink-0" />
+      <span className="h-px w-3 bg-line-mid" />
+      {/* The most useful line on the screen between two classes. */}
+      <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-ink-3">
+        {formatDuration(minutes)} open
+      </span>
+    </div>
+  );
+}
+
+function Upcoming({
+  blocks,
+  prevEndMin,
+}: {
+  blocks: DayBlock[];
+  /** End of whatever precedes this list, so the first gap is measurable. */
+  prevEndMin: number | null;
+}) {
+  if (blocks.length === 0) return null;
+  const [next, ...rest] = blocks;
+  const soon = rest.slice(0, 2);
+  const after = rest.slice(2);
+  // Authored large and scaled down, so growth is a GPU transform, not a reflow.
+  const p = approach(next.untilStart);
+  const leadGap = prevEndMin == null ? 0 : next.startMin - prevEndMin;
+
+  return (
+    <motion.div layout="position" className="px-5">
+      <div className="h-px w-6 bg-line-mid" />
+      {leadGap >= OPEN_MIN ? <OpenGap minutes={leadGap} /> : null}
+      <motion.div
+        layout
+        transition={S_PAGE}
+        className="flex items-center gap-2.5"
+        style={{ height: upcomingHeight(next.untilStart) * 0.52 }}
+      >
+        <span className="w-[38px] shrink-0 font-mono text-[10px] tabular-nums tracking-[0.06em] text-ink-3">
+          {next.block.start}
+        </span>
+        <motion.span
+          className="origin-left truncate font-light tracking-[-0.02em] text-ink-2"
+          // Authored at 26px and scaled down: ~14px of travel as it approaches,
+          // which is actually visible, unlike the 7px the first pass produced.
+          style={{ fontSize: 26, scale: 0.55 + 0.45 * p, opacity: 0.45 + 0.55 * p }}
+        >
+          {next.block.label}
+        </motion.span>
+        <span className="ml-auto shrink-0 font-mono text-[9.5px] tabular-nums tracking-[0.1em] text-ink-3">
+          {formatDuration(next.untilStart)}
+        </span>
+      </motion.div>
+
+      {soon.map((b, i) => {
+        const prev = i === 0 ? next : soon[i - 1];
+        const gap = b.startMin - prev.endMin;
+        // Every upcoming block grows, not just the first — and the row height
+        // grows with it, so approach is felt in the layout and not only in the
+        // type size. This is what `lib/layout.ts` exists for.
+        const q = approach(b.untilStart);
+        return (
+          <div key={b.index}>
+            {gap >= OPEN_MIN ? <OpenGap minutes={gap} /> : null}
+            <motion.div
+              layout
+              transition={S_PAGE}
+              className="flex items-center gap-2.5"
+              style={{ height: upcomingHeight(b.untilStart) * 0.42 }}
+            >
+              <span className="w-[38px] shrink-0 font-mono text-[9.5px] tabular-nums tracking-[0.06em] text-ink-3">
+                {b.block.start}
+              </span>
+              <motion.span
+                className="origin-left truncate tracking-[-0.01em] text-ink-2"
+                style={{
+                  fontSize: 17,
+                  scale: 0.72 + 0.28 * q,
+                  opacity: 0.62 + 0.38 * q,
+                }}
+              >
+                {b.block.label}
+              </motion.span>
+            </motion.div>
+          </div>
+        );
+      })}
+
+      {after.length > 0 ? (
+        <p className="mt-2 truncate font-mono text-[9px] uppercase tracking-[0.14em] text-ink-3">
+          {after.map((b) => b.block.label).join(" · ")}
+        </p>
+      ) : null}
+    </motion.div>
+  );
+}
+
+/* --------------------------------------------------------------- gap now */
+
+/**
+ * Dead air still has a now. Between blocks there is no live block to carry the
+ * now-line, so the gap itself becomes the instrument: a travelling index that
+ * crosses the span continuously and a live countdown to the next thing.
+ */
+function GapNow({
+  from,
+  to,
+  label,
+  nowMV,
+}: {
+  /** End of the last thing that happened; null before the day starts. */
+  from: number | null;
+  to: number;
+  label: string;
+  nowMV: ReturnType<typeof useClock>["nowMV"];
+}) {
+  const span = from == null ? 0 : Math.max(1, to - from);
+  const left = useTransform(nowMV, (m) => formatDuration(Math.max(0, to - m)));
+  const pos = useTransform(nowMV, (m) =>
+    from == null ? "0%" : `${Math.min(100, Math.max(0, ((m - from) / span) * 100))}%`,
+  );
+
+  return (
+    <motion.div layout="position" className="px-5 pb-1">
+      {from != null ? (
+        <div className="relative mt-1 h-px w-full bg-line-soft">
+          <motion.span
+            aria-hidden
+            className="absolute -top-[2px] h-[5px] w-[5px] rounded-pill bg-accent"
+            style={{ left: pos }}
+          />
+        </div>
+      ) : null}
+      <p className="mt-2.5 font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-3">
+        open · <motion.span>{left}</motion.span> to {label}
+      </p>
+    </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ footer */
+
+function Register({
+  day,
+  log,
+  onOpen,
+  onRecall,
+}: {
+  day: DayModel;
+  log: DailyLog | null;
+  onOpen: () => void;
+  onRecall: (blockIndex: number) => void;
+}) {
+  const blockOf = new Map<HabitKey, number>();
+  const endedOf = new Map<HabitKey, boolean>();
+  for (const b of day.blocks) {
+    if (!b.habit) continue;
+    blockOf.set(b.habit, b.index);
+    endedOf.set(b.habit, b.phase === "past");
+  }
+
+  return (
+    <div className="flex items-center gap-3 px-5">
+      <div className="flex gap-1.5">
+        {(Object.keys(HABIT_LABELS) as HabitKey[]).map((k) => {
+          const idx = blockOf.get(k);
+          const scheduled = idx != null;
+          const done = log?.habits?.[k] === true;
+          return (
+            <button
+              key={k}
+              type="button"
+              title={HABIT_LABELS[k]}
+              aria-label={`${HABIT_LABELS[k]} — ${
+                !scheduled
+                  ? "not scheduled today"
+                  : done
+                    ? "done, open to change"
+                    : "not logged, open to log"
+              }`}
+              disabled={!scheduled}
+              // Recalls the block that owns this habit, which is the only way
+              // to reach one whose window has already closed.
+              onClick={() => idx != null && onRecall(idx)}
+              className="flex min-h-11 items-center disabled:cursor-default"
+            >
+              <HabitGlyph
+                habit={k}
+                state={
+                  !scheduled
+                    ? "unscheduled"
+                    : done
+                      ? "done"
+                      : endedOf.get(k)
+                        ? "overdue"
+                        : "pending"
+                }
+              />
+            </button>
+          );
+        })}
+      </div>
+      {/* The pull is primary; this is the discoverable equivalent, and the
+          only path available to a keyboard or assistive-tech user. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="ml-auto min-h-11 font-mono text-[9px] uppercase tracking-[0.2em] text-ink-3 hover:text-ink-2"
+      >
+        pull for record
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- focus block */
+
+function FocusBlock({
+  b,
+  day,
+  log,
+  nowMV,
+  onHabit,
+  onPatch,
+  onRecoil,
+  recalled,
+  onReturn,
+}: {
+  b: DayBlock;
+  day: DayModel;
+  log: DailyLog | null;
+  nowMV: ReturnType<typeof useClock>["nowMV"];
+  onHabit: (k: HabitKey, v: boolean) => void;
+  onPatch: (p: Partial<DailyLog>) => void;
+  onRecoil: () => void;
+  /** True when this block was summoned rather than being the live one. */
+  recalled: boolean;
+  onReturn: () => void;
+}) {
+  const live = day.currentIndex === b.index;
+  const held = day.graceIndex === b.index;
+  const started = day.nowMin >= b.startMin;
+  const lastSession = useMemo(
+    () =>
+      b.fields.includes("trainingNote") ? lastTrainingNote(day.date) : null,
+    [b.fields, day.date],
+  );
+  const span = Math.max(1, b.endMin - b.startMin);
+  const pct = useTransform(nowMV, (m) => {
+    const p = Math.min(1, Math.max(0, (m - b.startMin) / span));
+    return `${p * 100}%`;
+  });
+  const left = useTransform(nowMV, (m) => formatDuration(Math.max(0, b.endMin - m)));
+
+  return (
+    <motion.section
+      layout
+      className="relative mx-5 overflow-hidden rounded-lg border border-line-soft bg-surface px-5 pt-5 pb-6"
+    >
+      {/* Elapsed wash — ambient progress, never a ring. */}
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 bg-ink/[0.05]"
+        style={{ height: live ? pct : "0%" }}
+      />
+      {/* The now-line. */}
+      {live ? (
+        <motion.div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 z-10 flex items-center"
+          style={{ top: pct }}
+        >
+          <span className="h-px flex-1 bg-accent/45" />
+          <span className="mr-4 ml-2 h-[5px] w-[5px] rounded-pill bg-accent" />
+        </motion.div>
+      ) : null}
+
+      <div className="relative">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="font-mono text-[10px] tabular-nums tracking-[0.16em] text-ink-3">
+            {b.block.start} — {b.block.end}
+          </span>
+          <span className="font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-3">
+            {recalled
+              ? "recalled"
+              : held
+                ? "held"
+                : live
+                  ? <motion.span>{left}</motion.span>
+                  : `in ${formatDuration(b.untilStart)}`}
+          </span>
+        </div>
+
+        {/* Size at low weight: presence without luminance. */}
+        <h1 className="mt-2.5 text-[36px] font-light leading-[0.98] tracking-[-0.03em] text-ink">
+          {b.block.label}
+        </h1>
+
+        {recalled ? (
+          <button
+            type="button"
+            onClick={onReturn}
+            className="mt-2 min-h-11 font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-3 hover:text-ink"
+          >
+            ← back to now
+          </button>
+        ) : held ? (
+          <p className="mt-2 font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-3">
+            still open — throw it
+          </p>
+        ) : null}
+
+        <div className="mt-6 space-y-6">
+          {b.fields.includes("deepWorkMinutes") ? (
+            <MinutesField
+              value={log?.deepWorkMinutes ?? 0}
+              blockMinutes={span}
+              onChange={(v) => onPatch({ deepWorkMinutes: v })}
+            />
+          ) : null}
+
+          {b.fields.includes("trainingNote") ? (
+            <div className="space-y-2">
+              <NoteField
+                label="Session"
+                placeholder="6 × 800 @ 5:42"
+                value={log?.trainingNote ?? ""}
+                onChange={(v) => onPatch({ trainingNote: v })}
+              />
+              {lastSession ? (
+                <p className="truncate font-mono text-[9.5px] uppercase tracking-[0.14em] text-ink-3">
+                  last · {lastSession.note}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {b.fields.includes("contentShipped") ? (
+            <ShippedField
+              value={log?.contentShipped ?? false}
+              onChange={(v) => onPatch({ contentShipped: v })}
+            />
+          ) : null}
+
+          {b.fields.includes("note") ? (
+            <NoteField
+              label="Close the day"
+              placeholder="One line."
+              rows={2}
+              value={log?.note ?? ""}
+              onChange={(v) => onPatch({ note: v })}
+            />
+          ) : null}
+
+          {/* The commit sits last: read the block, fill it in, then throw it.
+              Last also means lowest — inside the one-handed thumb arc.
+              A block that has not begun cannot be thrown: otherwise Saturday
+              afternoon offers a Lights-out latch that stamps 16:00. */}
+          {b.habit && !started ? (
+            <p className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-3">
+              opens {b.block.start}
+            </p>
+          ) : null}
+          {b.habit && started ? (
+            <Latch
+              habit={b.habit}
+              label={HABIT_LABELS[b.habit]}
+              checked={log?.habits?.[b.habit] === true}
+              stampMin={log?.stamps?.[b.habit]}
+              onChange={(v) => onHabit(b.habit as HabitKey, v)}
+              onRecoil={onRecoil}
+            />
+          ) : null}
+        </div>
+      </div>
+    </motion.section>
+  );
+}
+
+/* ------------------------------------------------------------------ screen */
+
+export function DayScreen() {
+  const reduced = useReducedMotion();
+  const clock = useClock();
+  const [log, setLog] = useState<DailyLog | null>(null);
+  const [mode, setMode] = useState<"day" | "record">("day");
+  /** A recalled block index, or null when following the live day. */
+  const [selected, setSelected] = useState<number | null>(null);
+  const recordHeadingRef = useRef<HTMLHeadingElement>(null);
+  const recoil = useMotionValue(0);
+  const pull = useMotionValue(0);
+  const loadedFor = useRef<string>("");
+
+  const [seconds, setSeconds] = useState("--:--:--");
+  useEffect(() => {
+    if (clock.pinned) {
+      setSeconds(formatClock(clock.nowMin));
+      return;
+    }
+    const tick = () => {
+      const d = new Date();
+      const p = (n: number) => String(n).padStart(2, "0");
+      setSeconds(`${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`);
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [clock.pinned, clock.nowMin]);
+
+  useEffect(() => {
+    if (!clock.ready || loadedFor.current === clock.date) return;
+    loadedFor.current = clock.date;
+    setLog(getDailyLog(clock.date) ?? makeEmptyLog(clock.date));
+  }, [clock.ready, clock.date]);
+
+  useEffect(() => {
+    if (mode === "record") recordHeadingRef.current?.focus();
+  }, [mode]);
+
+  const day = useMemo(
+    () => buildDay(clock.date, clock.nowMin, log),
+    [clock.date, clock.nowMin, log],
+  );
+
+  const series = useMemo(
+    () => (mode === "record" ? buildHabitSeries(14, clock.date) : []),
+    // Recompute whenever the record is opened or the log changes beneath it.
+    [mode, log],
+  );
+
+  const patch = useCallback(
+    (p: Partial<DailyLog>) => {
+      setLog((prev) => {
+        const next = { ...(prev ?? makeEmptyLog(clock.date)), ...p };
+        saveDailyLog(next);
+        return next;
+      });
+    },
+    [clock.date],
+  );
+
+  const setHabit = useCallback(
+    (k: HabitKey, v: boolean) => {
+      setLog((prev) => {
+        const base = prev ?? makeEmptyLog(clock.date);
+        const stamps = { ...(base.stamps ?? {}) };
+        if (v) stamps[k] = Math.floor(clock.nowMin);
+        else delete stamps[k];
+        // Backfill is a visit, not a destination — go back to now once thrown.
+        setSelected(null);
+        const next: DailyLog = {
+          ...base,
+          habits: { ...base.habits, [k]: v },
+          stamps,
+        };
+        saveDailyLog(next);
+        return next;
+      });
+    },
+    [clock.date, clock.nowMin],
+  );
+
+  // The whole instrument takes the shock — the mass reads as the device.
+  const fireRecoil = useCallback(() => {
+    if (reduced) return;
+    // Keyframes must run as a tween. A spring across three keyframes resolves
+    // origin === target and plays nothing — the recoil was silently dead, and
+    // it is the whole substitute for haptics on iPhone.
+    animate(recoil, [0, 4, 0], {
+      duration: 0.26,
+      times: [0, 0.28, 1],
+      ease: [0.22, 1, 0.36, 1],
+    });
+  }, [recoil, reduced]);
+
+  // Backfill. Blocks butt up against each other on MWF — Wake ends exactly when
+  // Run starts — so a habit whose block has closed had a zero-second commit
+  // window and was lost for the day. Summoning its block back is the fix: the
+  // habit is still thrown inside the block that owns it, that block is just
+  // recalled. Selection clears itself once the throw lands.
+  const focusIndex = selected != null && day.blocks[selected] ? selected : day.focusIndex;
+  const focus = day.blocks[focusIndex];
+  const recalled = focusIndex !== day.focusIndex;
+  const showFocus =
+    focus &&
+    (recalled || !(day.state === "after" && day.graceIndex < 0)) &&
+    mode === "day";
+  // No live block and nothing held: we are in real dead air, and the gap needs
+  // its own now-indicator because the focus block has not started yet.
+  const inDeadAir =
+    !recalled &&
+    day.currentIndex < 0 &&
+    day.graceIndex < 0 &&
+    !!focus &&
+    focus.phase === "upcoming";
+  const lastPastEnd =
+    [...day.blocks].reverse().find((b) => b.phase === "past")?.endMin ?? null;
+  const past = day.blocks.filter(
+    (b) => b.phase === "past" && b.index !== focusIndex,
+  );
+  const upcoming = day.blocks.filter(
+    (b) => b.phase === "upcoming" && b.index !== focusIndex,
+  );
+
+  if (!clock.ready) return <main className="min-h-dvh" aria-hidden />;
+
+  return (
+    <motion.main
+      style={{ y: recoil }}
+      className="relative flex h-dvh flex-col overflow-hidden pb-[env(safe-area-inset-bottom)]"
+    >
+      <motion.div
+        drag="y"
+        dragConstraints={{ top: 0, bottom: 0 }}
+        dragElastic={{ top: mode === "record" ? 0.45 : 0.08, bottom: mode === "day" ? 0.45 : 0.08 }}
+        dragMomentum={false}
+        onDrag={(_, i) => pull.set(i.offset.y)}
+        onDragEnd={(_, i) => {
+          pull.set(0);
+          if (mode === "day" && i.offset.y > PULL_COMMIT) setMode("record");
+          else if (mode === "record" && i.offset.y < -PULL_COMMIT) setMode("day");
+        }}
+        transition={S_SNAP}
+        className="flex h-full flex-col"
+      >
+        <LayoutGroup>
+          <AnimatePresence mode="popLayout" initial={false}>
+            {mode === "day" ? (
+              <motion.div
+                key="day"
+                layout
+                initial={reduced ? { opacity: 0 } : { opacity: 0, y: -14 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reduced ? { opacity: 0 } : { opacity: 0, y: 16 }}
+                transition={S_PAGE}
+                className="flex h-full flex-col pt-[env(safe-area-inset-top)]"
+              >
+                <Masthead day={day} seconds={seconds} />
+
+                {/* Weighted 1.7:1 so the live block — and its commit — sit low
+                    enough to fall inside a one-handed thumb arc. */}
+                <div className="flex min-h-0 flex-[1.7] flex-col justify-end gap-3 pb-1">
+                  <Past blocks={past} />
+                </div>
+
+                {inDeadAir && focus ? (
+                  <GapNow
+                    from={lastPastEnd}
+                    to={focus.startMin}
+                    label={focus.block.label}
+                    nowMV={clock.nowMV}
+                  />
+                ) : null}
+
+                {showFocus ? (
+                  <FocusBlock
+                    b={focus}
+                    day={day}
+                    log={log}
+                    nowMV={clock.nowMV}
+                    onHabit={setHabit}
+                    onPatch={patch}
+                    onRecoil={fireRecoil}
+                    recalled={recalled}
+                    onReturn={() => setSelected(null)}
+                  />
+                ) : (
+                  <section className="mx-5 rounded-lg border border-line-soft bg-surface px-5 py-8">
+                    <h1 className="text-[32px] font-light leading-none tracking-[-0.03em] text-ink">
+                      Day closed
+                    </h1>
+                    <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-3">
+                      next up 04:45
+                    </p>
+                  </section>
+                )}
+
+                <div className="flex min-h-0 flex-1 flex-col justify-start gap-3 pt-3">
+                  <Upcoming
+                    blocks={upcoming}
+                    prevEndMin={showFocus && focus ? focus.endMin : null}
+                  />
+                </div>
+
+                <div className="pb-3">
+                  <Register
+                    day={day}
+                    log={log}
+                    onOpen={() => setMode("record")}
+                    onRecall={setSelected}
+                  />
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="record"
+                layout
+                initial={reduced ? { opacity: 0 } : { opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reduced ? { opacity: 0 } : { opacity: 0, y: -16 }}
+                transition={S_PAGE}
+                className="flex h-full flex-col overflow-y-auto px-5 pt-[calc(env(safe-area-inset-top)+8px)]"
+              >
+                <div className="flex items-baseline justify-between pb-1">
+                  {/* A real heading, focused on entry: the morph replaces the
+                      whole surface, and without this a screen reader is left
+                      on a control that no longer exists and announces nothing. */}
+                  <h1
+                    ref={recordHeadingRef}
+                    tabIndex={-1}
+                    className="kicker outline-none"
+                  >
+                    The record — last 14 days
+                  </h1>
+                  <ThemeToggle />
+                </div>
+                <FourteenDay series={series} />
+                <Archive />
+                <button
+                  type="button"
+                  onClick={() => setMode("day")}
+                  className="min-h-11 pb-6 text-center font-mono text-[9px] uppercase tracking-[0.2em] text-ink-3 hover:text-ink-2"
+                >
+                  pull up to return
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </LayoutGroup>
+      </motion.div>
+    </motion.main>
+  );
+}

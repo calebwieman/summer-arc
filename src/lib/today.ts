@@ -1,5 +1,5 @@
-import { format, parseISO } from "date-fns";
-import type { DailyHabits, DailyLog, HabitDef } from "./types";
+import { format } from "date-fns";
+import type { DailyLog, HabitKey } from "./types";
 
 export function getTodayString(): string {
   return format(new Date(), "yyyy-MM-dd");
@@ -16,59 +16,37 @@ export function formatHeaderDate(date: string): string {
   return format(new Date(year, month - 1, day), "EEEE, MMMM d");
 }
 
-/**
- * Default habit set. IDs intentionally match the original fixed keys so that
- * any logs saved before habits became editable continue to read correctly.
- */
-export const DEFAULT_HABITS: HabitDef[] = [
-  { id: "run", label: "Morning run" },
-  { id: "amLift", label: "AM lift" },
-  { id: "plunge", label: "Cold plunge" },
-  { id: "bibleAm", label: "Bible (AM)" },
-  { id: "noPhoneBeforeBible", label: "No phone before Bible" },
-  { id: "pmLift", label: "PM lift" },
-  { id: "bibleEvening", label: "Bible (PM)" },
-  { id: "sleepBy10", label: "Sleep by 10" },
+/** Every habit key, in the order they come up in a day. */
+export const HABIT_KEYS: HabitKey[] = [
+  "wake",
+  "phoneOff",
+  "training",
+  "deepWork",
+  "lightsOut",
 ];
 
-export function createHabitId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return `h_${crypto.randomUUID().slice(0, 8)}`;
-  }
-  return `h_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-}
+export const HABIT_LABELS: Record<HabitKey, string> = {
+  wake: "Wake 04:45",
+  phoneOff: "Phone off till Quiet Time",
+  training: "Training",
+  deepWork: "Deep Work",
+  lightsOut: "Lights out",
+};
 
-/** True when a habit is scheduled for the given weekday (0=Sun..6=Sat). */
-export function isHabitScheduled(habit: HabitDef, weekday: number): boolean {
-  if (!habit.weekdays || habit.weekdays.length === 0) return true;
-  return habit.weekdays.includes(weekday);
-}
-
-/** Filter the habit list down to those scheduled for the given ISO date. */
-export function habitsForDate(habits: HabitDef[], date: string): HabitDef[] {
-  const dow = parseISO(date).getDay();
-  return habits.filter((h) => isHabitScheduled(h, dow));
-}
-
-function emptyHabits(habits: HabitDef[]): DailyHabits {
-  const map: DailyHabits = {};
-  for (const habit of habits) map[habit.id] = false;
-  return map;
-}
-
-export function makeEmptyLog(date: string, habits: HabitDef[] = DEFAULT_HABITS): DailyLog {
+export function makeEmptyLog(date: string): DailyLog {
   return {
     date,
-    habits: emptyHabits(habits),
-    coldCalls: 0,
-    runMiles: 0,
-    runNotes: "",
-    amLiftNotes: "",
-    pmLiftNotes: "",
-    plungeMinutes: 0,
-    sleepHours: 0,
-    win: "",
-    lesson: "",
-    top3Priorities: ["", "", ""],
+    habits: {
+      wake: false,
+      phoneOff: false,
+      training: false,
+      deepWork: false,
+      lightsOut: false,
+    },
+    deepWorkMinutes: 0,
+    trainingNote: "",
+    contentShipped: false,
+    note: "",
+    stamps: {},
   };
 }
