@@ -11,7 +11,6 @@ import {
   useTransform,
 } from "motion/react";
 import { useClock } from "@/hooks/use-clock";
-import { usePullNav } from "@/hooks/use-pull-nav";
 import { buildDay, type DayBlock, type DayModel } from "@/lib/day";
 import { approach, upcomingHeight } from "@/lib/layout";
 import { buildHabitSeries } from "@/lib/series";
@@ -48,7 +47,7 @@ function step(mode: Mode, delta: 1 | -1): Mode {
   return STACK[Math.min(STACK.length - 1, Math.max(0, i + delta))];
 }
 const S_PAGE = { type: "spring", stiffness: 300, damping: 34, mass: 0.9 } as const;
-const S_SNAP = { type: "spring", stiffness: 400, damping: 32, mass: 1 } as const;
+const S_SNAP = { type: "spring", stiffness: 700, damping: 44, mass: 0.8 } as const;
 
 /** Bands arrive top-down; the live block leads so the eye lands there first. */
 function rise(order: number, reduced: boolean | null) {
@@ -338,7 +337,7 @@ function Register({
           column, and once habits are user-defined there is no upper bound on
           how many glyphs land here. Five fit; twelve would have squeezed the
           "pull for record" affordance off the edge. */}
-      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="-mx-1 flex touch-pan-x gap-1.5 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {habits.map((h) => {
           const k = h.id;
           const idx = blockOf.get(k);
@@ -588,37 +587,6 @@ function FocusBlock({
 }
 
 
-/**
- * Moving between surfaces without the gesture.
- *
- * These used to be bare lowercase lines reading "pull down for history", which
- * describe a gesture rather than offering a control — easy to read as a caption
- * and never tap. The pull is the intended way through; this is the way through
- * when the pull does not land, so it has to look pressable.
- */
-function SurfaceNav({
-  items,
-}: {
-  items: { label: string; onPress: () => void }[];
-}) {
-  return (
-    <div className="flex justify-center gap-2 pb-4">
-      {items.map((it) => (
-        <motion.button
-          key={it.label}
-          type="button"
-          onClick={it.onPress}
-          whileTap={{ scale: 0.96 }}
-          transition={{ type: "spring", stiffness: 520, damping: 32 }}
-          className="mono-xs min-h-11 rounded-pill border border-line-mid px-4 text-ink-2 hover:border-accent hover:text-ink"
-        >
-          {it.label}
-        </motion.button>
-      ))}
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ screen */
 
 export function DayScreen() {
@@ -640,25 +608,10 @@ export function DayScreen() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const recordHeadingRef = useRef<HTMLHeadingElement>(null);
   const historyHeadingRef = useRef<HTMLHeadingElement>(null);
-  /** Whichever scrolling surface is mounted; only ever one at a time. */
-  const paneRef = useRef<HTMLDivElement>(null);
 
   const deeper = step(mode, 1);
   const shallower = step(mode, -1);
 
-  // On the deepest surface there is nothing further down, so a pull at the top
-  // returns instead of doing nothing — otherwise leaving history by gesture
-  // would mean scrolling a long page to its very bottom first.
-  const pullDown = useCallback(
-    () => setMode(mode === "history" ? "record" : deeper),
-    [mode, deeper],
-  );
-  const pullUp = useCallback(() => setMode(shallower), [shallower]);
-  usePullNav(paneRef, {
-    enabled: mode !== "day",
-    onPullDown: pullDown,
-    onPullUp: pullUp,
-  });
   const recoil = useMotionValue(0);
   const pull = useMotionValue(0);
   const loadedFor = useRef<string>("");
@@ -801,17 +754,17 @@ export function DayScreen() {
     >
       <motion.div
         drag="y"
-        // Only the day screen. The record and history are scroll boxes, and the
-        // browser gives their vertical touches to the scroller rather than to
-        // this drag — they use usePullNav instead, and leaving this listening
-        // there would risk both firing and stepping twice.
-        dragListener={mode === "day"}
         dragConstraints={{ top: 0, bottom: 0 }}
-        // Elastic only in a direction that leads somewhere, so the ends of the
-        // stack feel like ends rather than a gesture that silently did nothing.
+        /*
+          Taut. 0.45 let the whole surface wallow half a screen before
+          committing, which is what made the pages feel loose; 0.14 gives just
+          enough travel to see the gesture register. The ends of the stack go
+          almost rigid, so "there is nothing below this" is felt in the hand
+          rather than discovered by a pull that does nothing.
+        */
         dragElastic={{
-          top: shallower === mode ? 0.08 : 0.45,
-          bottom: deeper === mode ? 0.08 : 0.45,
+          top: shallower === mode ? 0.03 : 0.14,
+          bottom: deeper === mode ? 0.03 : 0.14,
         }}
         dragMomentum={false}
         onDrag={(_, i) => pull.set(i.offset.y)}
@@ -927,13 +880,12 @@ export function DayScreen() {
             ) : mode === "record" ? (
               <motion.div
                 key="record"
-                ref={paneRef}
                 layout
                 initial={reduced ? { opacity: 0 } : { opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduced ? { opacity: 0 } : { opacity: 0, y: -16 }}
                 transition={S_PAGE}
-                className="app-top-scroll flex h-full flex-col overflow-y-auto px-5"
+                className="app-top-scroll flex h-full flex-col overflow-hidden px-5"
               >
                 {/* A real heading, focused on entry: the morph replaces the
                     whole surface, and without this a screen reader is left on a
@@ -948,24 +900,17 @@ export function DayScreen() {
                   </h1>
                   <p className="meta mt-1.5">last 14 days · never miss twice</p>
                 </div>
-                <SurfaceNav
-                  items={[
-                    { label: "↑ today", onPress: () => setMode("day") },
-                    { label: "history ↓", onPress: () => setMode("history") },
-                  ]}
-                />
                 <FourteenDay series={series} />
               </motion.div>
             ) : (
               <motion.div
                 key="history"
-                ref={paneRef}
                 layout
                 initial={reduced ? { opacity: 0 } : { opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduced ? { opacity: 0 } : { opacity: 0, y: -16 }}
                 transition={S_PAGE}
-                className="app-top-scroll flex h-full flex-col overflow-y-auto px-5"
+                className="app-top-scroll flex h-full flex-col overflow-hidden px-5"
               >
                 <div className="pb-5 text-center">
                   <h1
@@ -977,15 +922,6 @@ export function DayScreen() {
                   </h1>
                   <p className="meta mt-1.5">tap any day to fill it in</p>
                 </div>
-                {/* Above the content, not below it: this surface is long, and a
-                    control at the foot means scrolling the whole calendar and
-                    year trace to get back. */}
-                <SurfaceNav
-                  items={[
-                    { label: "↑ record", onPress: () => setMode("record") },
-                    { label: "↑↑ today", onPress: () => setMode("day") },
-                  ]}
-                />
                 <HistoryScreen
                   today={clock.date}
                   version={dataVersion}

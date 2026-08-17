@@ -344,6 +344,18 @@
     padding-top: calc(var(--safe-top) + var(--status-band) + 4px);
   }
 
+  /*
+    The locked pages cannot scroll, so on a short screen something has to give.
+    Below this height the flexible region is a few dozen pixels — enough to
+    show a sliver of the year trace, which reads as a rendering fault rather
+    than as data. Dropping it outright is the honest degradation.
+  */
+  @media (max-height: 740px) {
+    .drop-when-short {
+      display: none;
+    }
+  }
+
   /* Hard-bordered panel. Depth is displacement + zero-blur shadow. */
   .panel {
     position: relative;

@@ -53,7 +53,9 @@ export function YearTrace({
   return (
     <section>
       <h3 className="kicker text-center">The year</h3>
-      <div className="mt-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div // touch-pan-x: overflow-x:auto computes overflow-y to auto too, which
+        // would make this a vertical scroll box and swallow the stack swipe.
+        className="mt-3 touch-pan-x overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex" style={{ gap: GAP }}>
           {cols.map((week, i) => (
             <div key={i} className="flex flex-col" style={{ gap: GAP }}>
