@@ -26,6 +26,16 @@ function wasDone(date: string, id: string): boolean {
   return getDailyLog(date)?.habits?.[id] === true;
 }
 
+/**
+ * This day holds no answer for this habit — a restored day from before the
+ * habit existed, not a day it was skipped. Scoring it either way would be a
+ * fabrication, so it is dropped from the denominator entirely, exactly as an
+ * unscheduled day is.
+ */
+function isNoData(date: string, id: string): boolean {
+  return getDailyLog(date)?.noData?.includes(id) === true;
+}
+
 /** ISO date of the earliest log, or null when nothing has been logged. */
 export function earliestLogDate(): string | null {
   const logs = getAllDailyLogs();
@@ -43,7 +53,9 @@ function scheduledDatesDesc(
   for (let i = 0; i < MAX_LOOKBACK_DAYS; i++) {
     const date = format(subDays(start, i), "yyyy-MM-dd");
     if (date < since) break;
-    if (isHabitScheduledOn(habit, date)) out.push(date);
+    if (isHabitScheduledOn(habit, date) && !isNoData(date, habit.id)) {
+      out.push(date);
+    }
   }
   return out;
 }
@@ -145,7 +157,10 @@ export function scoreDay(
   since: string | null = earliestLogDate(),
 ): DayScore {
   const log = getDailyLog(date);
-  const scheduled = habits.filter((h) => isHabitScheduledOn(h, date));
+  const blank = new Set(log?.noData ?? []);
+  const scheduled = habits.filter(
+    (h) => isHabitScheduledOn(h, date) && !blank.has(h.id),
+  );
   const done = scheduled.filter((h) => log?.habits?.[h.id]).length;
   return {
     date,

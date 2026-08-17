@@ -10,25 +10,31 @@ import { HabitGlyph } from "@/components/day/habit-glyph";
  *   miss     → deflects DOWN, in --bad
  *   rest day → flat, a dot on the baseline (never a miss)
  *   today    → hollow, still in play
- * Two consecutive misses draw a flag under the run. That is the only failure
- * signal in the app — there is no streak anywhere.
+ * Two consecutive misses draw a flag under the run.
+ *
+ * The page is locked and cannot scroll, so the rows have to fit whatever the
+ * habit count happens to be. Past five habits it switches to a tighter row —
+ * shorter track, and the streak moves up onto the fraction line rather than
+ * taking one of its own. Restoring a summer-arc backup brings eight across, so
+ * this is the normal case, not the edge one.
  */
 
-const TRACK_H = 34;
-const BASELINE = 21;
-const UP = 14;
-const DOWN = 9;
+const FULL = { track: 34, baseline: 21, up: 14, down: 9 };
+const TIGHT = { track: 24, baseline: 15, up: 10, down: 6 };
+type Dims = typeof FULL;
 
 function Tick({
   scheduled,
   done,
   isToday,
   preAdoption,
+  d,
 }: {
   scheduled: boolean;
   done: boolean;
   isToday: boolean;
   preAdoption: boolean;
+  d: Dims;
 }) {
   // Before the first log there is no data — drawing a miss would be a lie.
   if (!scheduled || (preAdoption && !done)) {
@@ -36,7 +42,7 @@ function Tick({
       <span
         aria-hidden
         className="absolute left-1/2 h-[3px] w-[3px] -translate-x-1/2 rounded-pill bg-ink-4"
-        style={{ top: BASELINE - 1 }}
+        style={{ top: d.baseline - 1 }}
       />
     );
   }
@@ -46,7 +52,7 @@ function Tick({
       <span
         aria-hidden
         className="absolute left-1/2 w-[3px] -translate-x-1/2 rounded-pill bg-ink"
-        style={{ top: BASELINE - UP, height: UP }}
+        style={{ top: d.baseline - d.up, height: d.up }}
       />
     );
   }
@@ -56,7 +62,7 @@ function Tick({
       <span
         aria-hidden
         className="absolute left-1/2 w-[3px] -translate-x-1/2 rounded-pill border border-ink-3 bg-transparent"
-        style={{ top: BASELINE - UP, height: UP }}
+        style={{ top: d.baseline - d.up, height: d.up }}
       />
     );
   }
@@ -65,13 +71,22 @@ function Tick({
     <span
       aria-hidden
       className="absolute left-1/2 w-[3px] -translate-x-1/2 rounded-pill bg-bad/80"
-      style={{ top: BASELINE, height: DOWN }}
+      style={{ top: d.baseline, height: d.down }}
     />
   );
 }
 
-function Row({ s, index }: { s: HabitSeries; index: number }) {
+function Row({
+  s,
+  index,
+  compact,
+}: {
+  s: HabitSeries;
+  index: number;
+  compact: boolean;
+}) {
   const flagged = new Set(s.flagRun);
+  const d = compact ? TIGHT : FULL;
 
   return (
     <motion.div
@@ -84,7 +99,7 @@ function Row({ s, index }: { s: HabitSeries; index: number }) {
         damping: 30,
         delay: index * 0.045,
       }}
-      className="py-3"
+      className={compact ? "py-1.5" : "py-3"}
     >
       <div className="flex items-baseline gap-2.5">
         <HabitGlyph
@@ -93,28 +108,31 @@ function Row({ s, index }: { s: HabitSeries; index: number }) {
           state={s.missedTwice ? "fault" : s.rate >= 0.8 ? "done" : "pending"}
         />
         <span className="mono-xs truncate text-ink-2">{s.label}</span>
-        {/* The fraction only. A percentage beside it was both redundant and,
-            when the two were computed over different windows, contradictory. */}
+        {/* Beside the label, not beside the fraction. Right-aligning it put
+            "0/7" next to "10/13" — two fractions, different meanings, one
+            column. The arrow says run-of, and best is dropped here; the
+            seismograph is the reading when there are this many rows. */}
+        {compact && s.streak > 0 ? (
+          <span className="mono-xs shrink-0 text-ink-4">↑{s.streak}</span>
+        ) : null}
         <span className="mono-sm ml-auto shrink-0 tabular-nums text-ink-3">
           {s.doneCount}/{s.scheduledCount}
         </span>
       </div>
 
-      {/* Streak line. Deliberately below the fraction and in the quieter
-          colour: the seismograph is still the primary reading, and a streak
-          that shouts would re-centre the app on not breaking a chain — which
-          is the failure mode the no-streak rule was avoiding. */}
-      <div className="mono-xs mt-1 flex items-baseline gap-3 text-ink-3">
-        <span className={s.streak > 0 ? "text-ink-2" : undefined}>
-          streak {s.streak}
-        </span>
-        {s.best > 0 ? <span>best {s.best}</span> : null}
-      </div>
+      {compact ? null : (
+        <div className="mono-xs mt-1 flex items-baseline gap-3 text-ink-3">
+          <span className={s.streak > 0 ? "text-ink-2" : undefined}>
+            streak {s.streak}
+          </span>
+          {s.best > 0 ? <span>best {s.best}</span> : null}
+        </div>
+      )}
 
       <div
-        className="relative mt-2 grid"
+        className={`relative grid ${compact ? "mt-1" : "mt-2"}`}
         style={{
-          height: TRACK_H,
+          height: d.track,
           gridTemplateColumns: `repeat(${s.samples.length}, 1fr)`,
         }}
       >
@@ -122,26 +140,30 @@ function Row({ s, index }: { s: HabitSeries; index: number }) {
         <span
           aria-hidden
           className="absolute inset-x-0 h-px bg-line-soft"
-          style={{ top: BASELINE }}
+          style={{ top: d.baseline }}
         />
-        {s.samples.map((d, i) => (
-          <span key={d.date} className="relative">
-            <Tick scheduled={d.scheduled} done={d.done} isToday={d.isToday} preAdoption={d.preAdoption} />
+        {s.samples.map((sample, i) => (
+          <span key={sample.date} className="relative">
+            <Tick
+              scheduled={sample.scheduled}
+              done={sample.done}
+              isToday={sample.isToday}
+              preAdoption={sample.preAdoption}
+              d={d}
+            />
             {flagged.has(i) ? (
               <span
                 aria-hidden
                 className="absolute inset-x-[15%] bg-bad"
-                style={{ top: BASELINE + DOWN + 4, height: 2 }}
+                style={{ top: d.baseline + d.down + 3, height: 2 }}
               />
             ) : null}
           </span>
         ))}
       </div>
 
-      {s.missedTwice ? (
-        <p className="mono-xs mt-1.5 text-bad">
-          missed twice — fix today
-        </p>
+      {s.missedTwice && !compact ? (
+        <p className="mono-xs mt-1.5 text-bad">missed twice — fix today</p>
       ) : null}
     </motion.div>
   );
@@ -149,18 +171,18 @@ function Row({ s, index }: { s: HabitSeries; index: number }) {
 
 export function FourteenDay({ series }: { series: HabitSeries[] }) {
   const axis = series[0]?.samples ?? [];
+  const compact = series.length > 5;
 
   return (
-    <div className="pb-10">
+    <div className="min-h-0 flex-1 overflow-hidden">
       <div className="divide-y divide-line-soft/60">
         {series.map((s, i) => (
-          <Row key={s.key} s={s} index={i} />
+          <Row key={s.key} s={s} index={i} compact={compact} />
         ))}
       </div>
 
-      {/* Day-of-week axis */}
       <div
-        className="mt-3 grid"
+        className="mt-2 grid"
         style={{ gridTemplateColumns: `repeat(${axis.length}, 1fr)` }}
         aria-hidden
       >

@@ -1,6 +1,18 @@
 import { eachDayOfInterval, format, parseISO, subDays } from "date-fns";
-import { getHabit, getHabits, isHabitScheduledOn, type HabitDef } from "./habits";
-import { isLegacyBundle, isLegacyLog, migrateLegacyLog } from "./migrate";
+import {
+  getAllHabits,
+  getHabit,
+  getHabits,
+  isHabitScheduledOn,
+  saveHabits,
+  type HabitDef,
+} from "./habits";
+import {
+  isLegacyBundle,
+  isLegacyLog,
+  migrateLegacyLog,
+  planMigration,
+} from "./migrate";
 import { getTodayString } from "./today";
 import type { DailyLog, HabitKey } from "./types";
 
@@ -73,6 +85,9 @@ function wasDone(date: string, habit: HabitKey): boolean {
  * not a training miss, and the weekend is not a deep-work miss.
  */
 function isScoredDay(date: string, habit: HabitDef, since: string): boolean {
+  // A day the log explicitly has no answer for is no more scoreable than an
+  // unscheduled one — restored history predates habits that came later.
+  if (getDailyLog(date)?.noData?.includes(habit.id)) return false;
   return date >= since && isHabitScheduledOn(habit, date);
 }
 
@@ -157,8 +172,9 @@ export function exportBackup(): BackupBundle {
 export function importBackup(
   bundle: unknown,
   { merge = true }: { merge?: boolean } = {},
-): { daily: number; migrated: number } {
-  if (typeof window === "undefined") return { daily: 0, migrated: 0 };
+): { daily: number; migrated: number; habitsAdded: string[] } {
+  if (typeof window === "undefined")
+    return { daily: 0, migrated: 0, habitsAdded: [] };
   if (!bundle || typeof bundle !== "object") throw new Error("Invalid backup file");
   const b = bundle as Partial<BackupBundle>;
   if (!b.daily || typeof b.daily !== "object") throw new Error("Invalid backup file");
@@ -169,19 +185,36 @@ export function importBackup(
   // written through as-is it would read as every habit missed on every day.
   const legacy = isLegacyBundle(bundle);
 
+  // Plan first, so every day is migrated against one consistent routing and
+  // habits the old app had but this one does not are installed rather than
+  // discarded. Existing definitions win: restoring must never rewrite the
+  // habits you are already tracking.
+  const existing = getAllHabits();
+  const known = new Set(existing.map((h) => h.id));
+  const plan = legacy ? planMigration(bundle, existing.length) : null;
+  const habitsAdded: string[] = [];
+
+  if (plan && plan.imported.length > 0) {
+    const fresh = plan.imported.filter((h) => !known.has(h.id));
+    if (fresh.length > 0) {
+      saveHabits([...existing, ...fresh]);
+      habitsAdded.push(...fresh.map((h) => h.label));
+    }
+  }
+
   let count = 0;
   let migrated = 0;
   for (const [date, log] of Object.entries(b.daily)) {
     if (!log || typeof log !== "object" || typeof date !== "string") continue;
-    if (legacy || isLegacyLog(log)) {
-      write(dailyKey(date), migrateLegacyLog(date, log));
+    if (plan && (legacy || isLegacyLog(log))) {
+      write(dailyKey(date), migrateLegacyLog(date, log, plan));
       migrated += 1;
     } else {
       write(dailyKey(date), log);
     }
     count += 1;
   }
-  return { daily: count, migrated };
+  return { daily: count, migrated, habitsAdded };
 }
 
 export function clearAllLogs(): void {

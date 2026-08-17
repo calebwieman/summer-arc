@@ -63,10 +63,16 @@ export function Archive() {
   const onFile = async (file: File) => {
     try {
       const parsed = JSON.parse(await file.text());
-      const { daily, migrated } = importBackup(parsed, { merge: true });
+      const { daily, migrated, habitsAdded } = importBackup(parsed, {
+        merge: true,
+      });
+      // Naming the habits it brought over matters: they arrive scheduled every
+      // day, and knowing which ones appeared is what prompts narrowing them.
+      const added =
+        habitsAdded.length > 0 ? ` · added ${habitsAdded.join(", ")}` : "";
       setStatus(
         migrated > 0
-          ? `${daily} days · ${migrated} converted from summer-arc — reloading`
+          ? `${daily} days · ${migrated} converted${added} — reloading`
           : `merged ${daily} ${daily === 1 ? "day" : "days"} — reloading`,
       );
       haptic([16, 24, 10]);
