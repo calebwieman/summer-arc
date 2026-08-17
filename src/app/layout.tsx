@@ -33,7 +33,24 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "Standard",
-    statusBarStyle: "black-translucent",
+    /*
+      NOT black-translucent.
+
+      That value is an instruction to draw the page *under* the status bar, and
+      iOS then paints a legibility backdrop over that band which samples the
+      content beneath — which is what rendered the date line smeared in the
+      installed app while leaving it crisp in Safari, where content never goes
+      under the status bar at all.
+
+      Three rounds of clearance tried to dodge the band by pushing content past
+      it. `default` removes it: iOS reserves the status bar, the viewport starts
+      below it, and there is no overlay to smear anything. The bar takes its
+      colour from the `themeColor` viewport entries below, which already track
+      --bg in both schemes, so nothing about the look changes.
+
+      The trade is the edge-to-edge top. Worth it for legible type.
+    */
+    statusBarStyle: "default",
   },
   icons: {
     icon: [

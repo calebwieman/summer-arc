@@ -56,19 +56,18 @@
     `--safe-top` is the OS safe area, floored so a device without one still
     gets a sane gap.
 
-    `--status-band` is how far the OS legibility treatment reaches *past* that
-    inset. It is not the status bar height — measured off a device screenshot,
-    the band ran to roughly 90pt on an iPhone 16 Pro whose inset is 59pt, so it
-    overhangs by about 30pt. Content inside it renders smeared rather than
-    crisp, which is why the first two attempts at this (+12px, then +24px) were
-    still landing the date line inside it.
+    `--status-band` was margin for an OS legibility band that overhung the
+    inset. With the status bar no longer set to black-translucent (see
+    layout.tsx) the viewport starts below the status bar and there is no
+    overlay left to clear, so this is back to ordinary breathing room rather
+    than a workaround. `--safe-top` reads 0 in that mode and the floor carries
+    it.
 
-    THIS IS THE NUMBER TO TUNE. Raise it if any masthead content still reads
-    blurred; lower it to win back vertical space if the band is smaller on
-    another device. Everything above derives from it.
+    Still the one number to tune if anything at the top ever reads cramped or
+    clipped — both classes below derive from it.
   */
   --safe-top: max(env(safe-area-inset-top, 0px), 8px);
-  --status-band: 36px;
+  --status-band: 16px;
 
   --gutter: clamp(18px, 3.2vw, 44px);
   --ease: cubic-bezier(0.65, 0.05, 0.36, 1);
