@@ -37,6 +37,9 @@ export function safeEqual(a: string, b: string): boolean {
 export const PUBLIC_PATHS = new Set([
   "/login",
   "/api/unlock",
+  // Which build is live is not a secret, and gating it would mean signing in
+  // before you can find out whether the sign-in screen is even current.
+  "/version",
   // The PWA needs these before sign-in or it cannot install or show its icon.
   "/manifest.json",
   "/sw.js",
