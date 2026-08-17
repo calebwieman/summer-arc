@@ -137,6 +137,7 @@
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
+  --color-scrim: var(--scrim);
 
   --font-display: var(--font-space-grotesk), system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-space-mono), ui-monospace, "Cascadia Code", Consolas,

@@ -6,7 +6,7 @@
 // Bump on every asset change — activate deletes all other caches, which is the
 // only way an already-installed PWA lets go of stale icons and routes.
 // v5 dropped the old Summer entries; v6 ships the new mark.
-const CACHE_NAME = "standard-cache-v6";
+const CACHE_NAME = "standard-cache-v7";
 const APP_SHELL = [
   "/",
   "/manifest.json",
@@ -67,7 +67,10 @@ async function networkFirst(request) {
   const cache = await caches.open(CACHE_NAME);
   try {
     const fresh = await fetch(request);
-    if (fresh && fresh.ok) cache.put(request, fresh.clone());
+    // Never cache a redirected navigation. Signed out, a request for "/"
+    // follows the gate to /login and would otherwise be stored *as* "/",
+    // leaving the login screen cached as the app forever.
+    if (fresh && fresh.ok && !fresh.redirected) cache.put(request, fresh.clone());
     return fresh;
   } catch {
     const cached = await cache.match(request);

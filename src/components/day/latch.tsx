@@ -103,9 +103,12 @@ export function Latch({
       selfDriven.current = false;
       return;
     }
-    // First paint, or a width change: snap, never replay the throw.
+    // First paint, or a width change: snap, never replay the throw. Only count
+    // as mounted once the track has actually been measured — otherwise the
+    // zero-width first pass consumes the snap and the real positioning tries
+    // to animate, leaving an already-thrown latch parked at the wrong end.
     if (!mounted.current || travelRef.current === 0) {
-      mounted.current = true;
+      if (travelRef.current > 0) mounted.current = true;
       x.set(target);
       return;
     }
@@ -122,6 +125,8 @@ export function Latch({
   const labelFade = useTransform(progress, [0, 0.5], [1, 0]);
   const glyphDim = useTransform(progress, [0, 1], [0.55, 1]);
   const undoWipe = useTransform(undoProgress, (p) => `${(1 - p) * 100}%`);
+  /** Only readable once the carriage has cleared the left of the track. */
+  const receiptFade = useTransform(progress, [0.45, 0.8], [0, 1]);
 
   const commit = useCallback(
     (next: boolean) => {
@@ -230,12 +235,16 @@ export function Latch({
       </motion.span>
 
       {checked ? (
-        <span
+        <motion.span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-5 flex items-center font-mono text-[10px] tabular-nums tracking-[0.12em] text-ink-2"
+          // Left, not right: the carriage parks on the right, and a timestamp
+          // there just peeks out from behind it. Opacity rides the travel so
+          // it clears out of the way when the bolt is thrown back.
+          style={{ opacity: receiptFade }}
+          className="pointer-events-none absolute inset-y-0 left-6 flex items-center font-mono text-[10px] tabular-nums tracking-[0.12em] text-ink-2"
         >
           {stampMin != null ? formatClock(stampMin) : "set"}
-        </span>
+        </motion.span>
       ) : null}
 
       {checked ? (

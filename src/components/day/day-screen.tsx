@@ -16,11 +16,13 @@ import { approach, upcomingHeight } from "@/lib/layout";
 import { buildHabitSeries } from "@/lib/series";
 import { getDailyLog, lastTrainingNote, saveDailyLog } from "@/lib/storage";
 import { HABIT_LABELS, formatHeaderDate, makeEmptyLog } from "@/lib/today";
+import { habitTally } from "@/lib/day";
 import { formatClock, formatDuration } from "@/lib/clock";
 import type { DailyLog, HabitKey } from "@/lib/types";
-import { Archive } from "@/components/review/archive";
 import { FourteenDay } from "@/components/review/fourteen-day";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { SettingsSheet } from "@/components/settings/settings-sheet";
+import { WeekStrip, buildWeek, type WeekDay } from "./week-strip";
+import { Settings2 } from "lucide-react";
 import { HabitGlyph } from "./habit-glyph";
 import { Latch } from "./latch";
 import { MinutesField, NoteField, ShippedField } from "./fields";
@@ -29,21 +31,66 @@ const PULL_COMMIT = 96;
 const S_PAGE = { type: "spring", stiffness: 300, damping: 34, mass: 0.9 } as const;
 const S_SNAP = { type: "spring", stiffness: 400, damping: 32, mass: 1 } as const;
 
+/** Bands arrive top-down; the live block leads so the eye lands there first. */
+function rise(order: number, reduced: boolean | null) {
+  return {
+    initial: reduced ? { opacity: 0 } : { opacity: 0, y: 12 },
+    animate: { opacity: 1, y: 0 },
+    transition: reduced
+      ? { duration: 0.18, delay: order * 0.03 }
+      : {
+          type: "spring" as const,
+          stiffness: 300,
+          damping: 30,
+          mass: 0.9,
+          delay: order * 0.06,
+        },
+  };
+}
+
 /* ---------------------------------------------------------------- masthead */
 
-function Masthead({ day, seconds }: { day: DayModel; seconds: string }) {
+function Masthead({
+  day,
+  seconds,
+  tally,
+  minutes,
+  onSettings,
+}: {
+  day: DayModel;
+  seconds: string;
+  tally: { done: number; total: number };
+  minutes: number;
+  onSettings: () => void;
+}) {
   return (
-    <header className="flex items-baseline justify-between gap-3 px-5 pt-2 pb-3">
+    <header className="flex items-start justify-between gap-3 px-5 pt-2 pb-3">
       <div className="min-w-0">
         <p className="kicker truncate">{formatHeaderDate(day.date)}</p>
-        <p className="mt-1 font-mono text-[9.5px] uppercase tracking-[0.18em] text-ink-3">
-          ends {day.blocks.length ? day.blocks[day.blocks.length - 1].block.end : "—"}
+        {/* Where the day actually stands, at a glance, without a trip anywhere. */}
+        <p className="mt-1.5 font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-3">
+          <span className="text-ink-2">
+            {tally.done}/{tally.total}
+          </span>
+          {minutes > 0 ? ` · ${minutes}m deep` : ""}
+          {" · ends "}
+          {day.blocks.length ? day.blocks[day.blocks.length - 1].block.end : "—"}
         </p>
       </div>
-      {/* The seconds are the proof of life — the now-line moves too slowly to read. */}
-      <span className="shrink-0 font-mono text-[11px] tabular-nums tracking-[0.08em] text-ink-2">
-        {seconds}
-      </span>
+      <div className="flex shrink-0 items-center gap-1">
+        {/* The seconds are the proof of life — the now-line moves too slowly to read. */}
+        <span className="font-mono text-[11px] tabular-nums tracking-[0.08em] text-ink-2">
+          {seconds}
+        </span>
+        <button
+          type="button"
+          aria-label="Settings"
+          onClick={onSettings}
+          className="flex h-11 w-11 items-center justify-center rounded-pill text-ink-3 hover:text-ink"
+        >
+          <Settings2 className="h-4 w-4" />
+        </button>
+      </div>
     </header>
   );
 }
@@ -65,8 +112,8 @@ function PastLine({ b }: { b: DayBlock }) {
 
 function Past({ blocks }: { blocks: DayBlock[] }) {
   if (blocks.length === 0) return null;
-  const tail = blocks.slice(-2);
-  const head = blocks.slice(0, -2);
+  const tail = blocks.slice(-3);
+  const head = blocks.slice(0, -3);
 
   return (
     <motion.div layout="position" className="px-5">
@@ -75,8 +122,15 @@ function Past({ blocks }: { blocks: DayBlock[] }) {
           {head.map((b) => b.block.label).join(" · ")}
         </p>
       ) : null}
-      {tail.map((b) => (
-        <PastLine key={b.index} b={b} />
+      {tail.map((b, i) => (
+        <motion.div
+          key={b.index}
+          initial={{ opacity: 0, x: -6 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ type: "spring", stiffness: 320, damping: 30, delay: 0.06 + i * 0.04 }}
+        >
+          <PastLine b={b} />
+        </motion.div>
       ))}
       <div className="mt-2 h-px w-6 bg-line-mid" />
     </motion.div>
@@ -111,8 +165,8 @@ function Upcoming({
 }) {
   if (blocks.length === 0) return null;
   const [next, ...rest] = blocks;
-  const soon = rest.slice(0, 2);
-  const after = rest.slice(2);
+  const soon = rest.slice(0, 3);
+  const after = rest.slice(3);
   // Authored large and scaled down, so growth is a GPU transform, not a reflow.
   const p = approach(next.untilStart);
   const leadGap = prevEndMin == null ? 0 : next.startMin - prevEndMin;
@@ -477,6 +531,7 @@ export function DayScreen() {
   const [mode, setMode] = useState<"day" | "record">("day");
   /** A recalled block index, or null when following the live day. */
   const [selected, setSelected] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const recordHeadingRef = useRef<HTMLHeadingElement>(null);
   const recoil = useMotionValue(0);
   const pull = useMotionValue(0);
@@ -511,6 +566,11 @@ export function DayScreen() {
   const day = useMemo(
     () => buildDay(clock.date, clock.nowMin, log),
     [clock.date, clock.nowMin, log],
+  );
+
+  const week = useMemo<WeekDay[]>(
+    () => (clock.ready ? buildWeek(clock.date) : []),
+    [clock.ready, clock.date, log],
   );
 
   const series = useMemo(
@@ -626,13 +686,24 @@ export function DayScreen() {
                 transition={S_PAGE}
                 className="flex h-full flex-col pt-[env(safe-area-inset-top)]"
               >
-                <Masthead day={day} seconds={seconds} />
+                <motion.div {...rise(0, reduced)}>
+                  <Masthead
+                    day={day}
+                    seconds={seconds}
+                    tally={habitTally(day, log)}
+                    minutes={log?.deepWorkMinutes ?? 0}
+                    onSettings={() => setSettingsOpen(true)}
+                  />
+                </motion.div>
 
                 {/* Weighted 1.7:1 so the live block — and its commit — sit low
                     enough to fall inside a one-handed thumb arc. */}
-                <div className="flex min-h-0 flex-[1.7] flex-col justify-end gap-3 pb-1">
+                <motion.div
+                  {...rise(1, reduced)}
+                  className="flex min-h-0 flex-[1.7] flex-col justify-end gap-3 pb-1"
+                >
                   <Past blocks={past} />
-                </div>
+                </motion.div>
 
                 {inDeadAir && focus ? (
                   <GapNow
@@ -666,21 +737,25 @@ export function DayScreen() {
                   </section>
                 )}
 
-                <div className="flex min-h-0 flex-1 flex-col justify-start gap-3 pt-3">
+                <motion.div
+                  {...rise(3, reduced)}
+                  className="flex min-h-0 flex-1 flex-col justify-start gap-3 pt-3"
+                >
                   <Upcoming
                     blocks={upcoming}
                     prevEndMin={showFocus && focus ? focus.endMin : null}
                   />
-                </div>
+                </motion.div>
 
-                <div className="pb-3">
+                <motion.div {...rise(4, reduced)} className="space-y-4 pb-3">
+                  {week.length > 0 ? <WeekStrip week={week} /> : null}
                   <Register
                     day={day}
                     log={log}
                     onOpen={() => setMode("record")}
                     onRecall={setSelected}
                   />
-                </div>
+                </motion.div>
               </motion.div>
             ) : (
               <motion.div
@@ -706,9 +781,7 @@ export function DayScreen() {
                   <p className="meta mt-1.5">last 14 days · never miss twice</p>
                 </div>
                 <FourteenDay series={series} />
-                <Archive />
                 <div className="flex flex-col items-center gap-4 pb-8">
-                  <ThemeToggle />
                   <button
                     type="button"
                     onClick={() => setMode("day")}
@@ -722,6 +795,10 @@ export function DayScreen() {
           </AnimatePresence>
         </LayoutGroup>
       </motion.div>
+      <SettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </motion.main>
   );
 }
