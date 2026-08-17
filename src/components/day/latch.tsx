@@ -235,11 +235,21 @@ export function Latch({
           aria-hidden
           // Left, not right: the carriage parks on the right, and a timestamp
           // there just peeks out from behind it. Opacity rides the travel so
-          // it clears out of the way when the bolt is thrown back.
-          style={{ opacity: receiptFade }}
-          className="mono-sm pointer-events-none absolute inset-y-0 left-6 flex items-center tabular-nums text-ink-2"
+          // it clears out of the way when the bolt is thrown back. The right
+          // bound keeps the text clear of the parked carriage.
+          style={{ opacity: receiptFade, right: CAR + PAD + 12 }}
+          className="pointer-events-none absolute inset-y-0 left-6 flex items-center gap-2 overflow-hidden"
         >
-          {stampMin != null ? formatClock(stampMin) : "set"}
+          {/* The label stays after the throw. It used to disappear, leaving
+              only a stamp — readable enough on the day screen, where the block
+              names the habit, but a backfilled day stacks four latches with no
+              stamps at all and every one of them just read "set". */}
+          <span className="mono-xs truncate text-ink-2">{label}</span>
+          {stampMin != null ? (
+            <span className="mono-sm shrink-0 tabular-nums text-ink-3">
+              {formatClock(stampMin)}
+            </span>
+          ) : null}
         </motion.span>
       ) : null}
 

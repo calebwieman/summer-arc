@@ -27,7 +27,7 @@ function wasDone(date: string, id: string): boolean {
 }
 
 /** ISO date of the earliest log, or null when nothing has been logged. */
-function earliestLogDate(): string | null {
+export function earliestLogDate(): string | null {
   const logs = getAllDailyLogs();
   return logs.length > 0 ? logs[0].date : null;
 }
@@ -130,10 +130,20 @@ export interface DayScore {
   total: number;
   /** 0–1, or -1 when nothing was scheduled that day. */
   ratio: number;
+  /**
+   * Before the first day anything was ever logged. Drawn as no-data, never as
+   * a miss — the same rule the record's seismograph follows. Without it a fresh
+   * install renders a year of fabricated failure behind you.
+   */
+  preAdoption: boolean;
 }
 
 /** Done-vs-scheduled for a single date, using today's registry. */
-export function scoreDay(date: string, habits = getHabits()): DayScore {
+export function scoreDay(
+  date: string,
+  habits = getHabits(),
+  since: string | null = earliestLogDate(),
+): DayScore {
   const log = getDailyLog(date);
   const scheduled = habits.filter((h) => isHabitScheduledOn(h, date));
   const done = scheduled.filter((h) => log?.habits?.[h.id]).length;
@@ -142,6 +152,7 @@ export function scoreDay(date: string, habits = getHabits()): DayScore {
     done,
     total: scheduled.length,
     ratio: scheduled.length === 0 ? -1 : done / scheduled.length,
+    preAdoption: since == null || date < since,
   };
 }
 
@@ -160,9 +171,10 @@ export function overallStats(today = getTodayString()): OverallStats {
     return { daysLogged: 0, firstDate: null, averageRatio: 0, perfectDays: 0 };
   }
   const habits = getHabits();
+  const since = logs[0].date;
   const scores = logs
     .filter((l) => l.date !== today)
-    .map((l) => scoreDay(l.date, habits))
+    .map((l) => scoreDay(l.date, habits, since))
     .filter((s) => s.ratio >= 0);
 
   const perfect = scores.filter((s) => s.done === s.total && s.total > 0).length;

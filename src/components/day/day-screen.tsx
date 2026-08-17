@@ -21,6 +21,8 @@ import { habitTally } from "@/lib/day";
 import { formatClock, formatDuration } from "@/lib/clock";
 import type { DailyLog, HabitKey } from "@/lib/types";
 import { FourteenDay } from "@/components/review/fourteen-day";
+import { HistoryScreen } from "@/components/history/history-screen";
+import { DaySheet } from "@/components/history/day-sheet";
 import { SettingsSheet } from "@/components/settings/settings-sheet";
 import { FloatingHabitSheet } from "./floating-habit-sheet";
 import { WeekStrip, buildWeek, type WeekDay } from "./week-strip";
@@ -30,6 +32,20 @@ import { Latch } from "./latch";
 import { MinutesField, NoteField, ShippedField } from "./fields";
 
 const PULL_COMMIT = 96;
+
+/**
+ * The surfaces, ordered by depth. Pulling down goes deeper, pulling up comes
+ * back — the app stays one screen and gains surfaces by gesture rather than by
+ * routes. Each end of the stack is its own neighbour, which is what makes the
+ * top and bottom feel like ends.
+ */
+const STACK = ["day", "record", "history"] as const;
+type Mode = (typeof STACK)[number];
+
+function step(mode: Mode, delta: 1 | -1): Mode {
+  const i = STACK.indexOf(mode);
+  return STACK[Math.min(STACK.length - 1, Math.max(0, i + delta))];
+}
 const S_PAGE = { type: "spring", stiffness: 300, damping: 34, mass: 0.9 } as const;
 const S_SNAP = { type: "spring", stiffness: 400, damping: 32, mass: 1 } as const;
 
@@ -579,13 +595,20 @@ export function DayScreen() {
   // Lazy initial read: the registry lives in localStorage, and the real UI is
   // gated behind `clock.ready`, so nothing rendered before mount can mismatch.
   const [habits, setHabits] = useState<HabitDef[]>(getHabits);
-  const [mode, setMode] = useState<"day" | "record">("day");
+  const [mode, setMode] = useState<Mode>("day");
+  /** A past day opened for backfill from the history surface. */
+  const [pickedDate, setPickedDate] = useState<string | null>(null);
+  /** Bumped after any write so history recounts without a full reload. */
+  const [dataVersion, setDataVersion] = useState(0);
   /** A floating habit being committed in its own sheet. */
   const [floatingId, setFloatingId] = useState<HabitKey | null>(null);
   /** A recalled block index, or null when following the live day. */
   const [selected, setSelected] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const deeper = step(mode, 1);
+  const shallower = step(mode, -1);
   const recordHeadingRef = useRef<HTMLHeadingElement>(null);
+  const historyHeadingRef = useRef<HTMLHeadingElement>(null);
   const recoil = useMotionValue(0);
   const pull = useMotionValue(0);
   const loadedFor = useRef<string>("");
@@ -614,6 +637,7 @@ export function DayScreen() {
 
   useEffect(() => {
     if (mode === "record") recordHeadingRef.current?.focus();
+    if (mode === "history") historyHeadingRef.current?.focus();
   }, [mode]);
 
   // Editing habits in the settings sheet must redraw the spine underneath it.
@@ -728,13 +752,18 @@ export function DayScreen() {
       <motion.div
         drag="y"
         dragConstraints={{ top: 0, bottom: 0 }}
-        dragElastic={{ top: mode === "record" ? 0.45 : 0.08, bottom: mode === "day" ? 0.45 : 0.08 }}
+        // Elastic only in a direction that leads somewhere, so the ends of the
+        // stack feel like ends rather than a gesture that silently did nothing.
+        dragElastic={{
+          top: shallower === mode ? 0.08 : 0.45,
+          bottom: deeper === mode ? 0.08 : 0.45,
+        }}
         dragMomentum={false}
         onDrag={(_, i) => pull.set(i.offset.y)}
         onDragEnd={(_, i) => {
           pull.set(0);
-          if (mode === "day" && i.offset.y > PULL_COMMIT) setMode("record");
-          else if (mode === "record" && i.offset.y < -PULL_COMMIT) setMode("day");
+          if (i.offset.y > PULL_COMMIT) setMode(deeper);
+          else if (i.offset.y < -PULL_COMMIT) setMode(shallower);
         }}
         transition={S_SNAP}
         className="flex h-full flex-col"
@@ -842,7 +871,7 @@ export function DayScreen() {
                   />
                 </motion.div>
               </motion.div>
-            ) : (
+            ) : mode === "record" ? (
               <motion.div
                 key="record"
                 layout
@@ -866,7 +895,14 @@ export function DayScreen() {
                   <p className="meta mt-1.5">last 14 days · never miss twice</p>
                 </div>
                 <FourteenDay series={series} />
-                <div className="flex flex-col items-center gap-4 pb-8">
+                <div className="flex flex-col items-center gap-1 pb-8">
+                  <button
+                    type="button"
+                    onClick={() => setMode("history")}
+                    className="mono-xs min-h-11 text-center text-ink-2 hover:text-ink"
+                  >
+                    pull down for history
+                  </button>
                   <button
                     type="button"
                     onClick={() => setMode("day")}
@@ -876,6 +912,39 @@ export function DayScreen() {
                   </button>
                 </div>
               </motion.div>
+            ) : (
+              <motion.div
+                key="history"
+                layout
+                initial={reduced ? { opacity: 0 } : { opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reduced ? { opacity: 0 } : { opacity: 0, y: -16 }}
+                transition={S_PAGE}
+                className="flex h-full flex-col overflow-y-auto px-5 pt-[calc(env(safe-area-inset-top)+8px)]"
+              >
+                <div className="pb-5 text-center">
+                  <h1
+                    ref={historyHeadingRef}
+                    tabIndex={-1}
+                    className="kicker outline-none"
+                  >
+                    History
+                  </h1>
+                  <p className="meta mt-1.5">tap any day to fill it in</p>
+                </div>
+                <HistoryScreen
+                  today={clock.date}
+                  version={dataVersion}
+                  onPick={setPickedDate}
+                />
+                <button
+                  type="button"
+                  onClick={() => setMode("record")}
+                  className="mono-xs min-h-11 pb-8 text-center text-ink-3 hover:text-ink-2"
+                >
+                  pull up to return
+                </button>
+              </motion.div>
             )}
           </AnimatePresence>
         </LayoutGroup>
@@ -883,6 +952,11 @@ export function DayScreen() {
       <SettingsSheet
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+      />
+      <DaySheet
+        date={pickedDate}
+        onClose={() => setPickedDate(null)}
+        onSaved={() => setDataVersion((v) => v + 1)}
       />
       <FloatingHabitSheet
         habit={floatingId ? habitById.get(floatingId) : undefined}
