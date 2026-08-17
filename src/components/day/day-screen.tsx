@@ -11,6 +11,7 @@ import {
   useTransform,
 } from "motion/react";
 import { useClock } from "@/hooks/use-clock";
+import { usePullNav } from "@/hooks/use-pull-nav";
 import { buildDay, type DayBlock, type DayModel } from "@/lib/day";
 import { approach, upcomingHeight } from "@/lib/layout";
 import { buildHabitSeries } from "@/lib/series";
@@ -605,10 +606,27 @@ export function DayScreen() {
   /** A recalled block index, or null when following the live day. */
   const [selected, setSelected] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const deeper = step(mode, 1);
-  const shallower = step(mode, -1);
   const recordHeadingRef = useRef<HTMLHeadingElement>(null);
   const historyHeadingRef = useRef<HTMLHeadingElement>(null);
+  /** Whichever scrolling surface is mounted; only ever one at a time. */
+  const paneRef = useRef<HTMLDivElement>(null);
+
+  const deeper = step(mode, 1);
+  const shallower = step(mode, -1);
+
+  // On the deepest surface there is nothing further down, so a pull at the top
+  // returns instead of doing nothing — otherwise leaving history by gesture
+  // would mean scrolling a long page to its very bottom first.
+  const pullDown = useCallback(
+    () => setMode(mode === "history" ? "record" : deeper),
+    [mode, deeper],
+  );
+  const pullUp = useCallback(() => setMode(shallower), [shallower]);
+  usePullNav(paneRef, {
+    enabled: mode !== "day",
+    onPullDown: pullDown,
+    onPullUp: pullUp,
+  });
   const recoil = useMotionValue(0);
   const pull = useMotionValue(0);
   const loadedFor = useRef<string>("");
@@ -751,6 +769,11 @@ export function DayScreen() {
     >
       <motion.div
         drag="y"
+        // Only the day screen. The record and history are scroll boxes, and the
+        // browser gives their vertical touches to the scroller rather than to
+        // this drag — they use usePullNav instead, and leaving this listening
+        // there would risk both firing and stepping twice.
+        dragListener={mode === "day"}
         dragConstraints={{ top: 0, bottom: 0 }}
         // Elastic only in a direction that leads somewhere, so the ends of the
         // stack feel like ends rather than a gesture that silently did nothing.
@@ -872,6 +895,7 @@ export function DayScreen() {
             ) : mode === "record" ? (
               <motion.div
                 key="record"
+                ref={paneRef}
                 layout
                 initial={reduced ? { opacity: 0 } : { opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -913,6 +937,7 @@ export function DayScreen() {
             ) : (
               <motion.div
                 key="history"
+                ref={paneRef}
                 layout
                 initial={reduced ? { opacity: 0 } : { opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
