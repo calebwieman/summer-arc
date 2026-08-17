@@ -24,4 +24,10 @@ export interface DailyLog {
    * Powers the "done 04:52" receipt and, over time, wake-time drift.
    */
   stamps?: Partial<Record<HabitKey, number>>;
+  /**
+   * Habits that cannot be scored for this day because no source for them
+   * exists — set when restoring a backup from a version that never tracked
+   * them. The record draws these as no-data, never as a miss.
+   */
+  noData?: HabitKey[];
 }

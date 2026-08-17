@@ -1,4 +1,5 @@
 import { eachDayOfInterval, format, parseISO, subDays } from "date-fns";
+import { isLegacyBundle, isLegacyLog, migrateLegacyLog } from "./migrate";
 import { isHabitScheduled } from "./schedule";
 import { HABIT_KEYS, HABIT_LABELS, getTodayString } from "./today";
 import type { DailyLog, HabitKey } from "./types";
@@ -154,22 +155,31 @@ export function exportBackup(): BackupBundle {
 export function importBackup(
   bundle: unknown,
   { merge = true }: { merge?: boolean } = {},
-): { daily: number } {
-  if (typeof window === "undefined") return { daily: 0 };
+): { daily: number; migrated: number } {
+  if (typeof window === "undefined") return { daily: 0, migrated: 0 };
   if (!bundle || typeof bundle !== "object") throw new Error("Invalid backup file");
   const b = bundle as Partial<BackupBundle>;
   if (!b.daily || typeof b.daily !== "object") throw new Error("Invalid backup file");
 
   if (!merge) clearAllLogs();
 
+  // A backup from the old summer-arc app uses different habit ids and fields;
+  // written through as-is it would read as every habit missed on every day.
+  const legacy = isLegacyBundle(bundle);
+
   let count = 0;
+  let migrated = 0;
   for (const [date, log] of Object.entries(b.daily)) {
-    if (log && typeof log === "object" && typeof date === "string") {
+    if (!log || typeof log !== "object" || typeof date !== "string") continue;
+    if (legacy || isLegacyLog(log)) {
+      write(dailyKey(date), migrateLegacyLog(date, log));
+      migrated += 1;
+    } else {
       write(dailyKey(date), log);
-      count += 1;
     }
+    count += 1;
   }
-  return { daily: count };
+  return { daily: count, migrated };
 }
 
 export function clearAllLogs(): void {

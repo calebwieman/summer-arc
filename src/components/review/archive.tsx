@@ -63,8 +63,12 @@ export function Archive() {
   const onFile = async (file: File) => {
     try {
       const parsed = JSON.parse(await file.text());
-      const { daily } = importBackup(parsed, { merge: true });
-      setStatus(`merged ${daily} ${daily === 1 ? "day" : "days"} — reloading`);
+      const { daily, migrated } = importBackup(parsed, { merge: true });
+      setStatus(
+        migrated > 0
+          ? `${daily} days · ${migrated} converted from summer-arc — reloading`
+          : `merged ${daily} ${daily === 1 ? "day" : "days"} — reloading`,
+      );
       haptic([16, 24, 10]);
       setTimeout(() => window.location.reload(), 700);
     } catch {

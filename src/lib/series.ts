@@ -51,7 +51,12 @@ export function buildHabitSeries(
   const since = all.length > 0 ? all[0].date : null;
 
   // Read each day once, not once per habit.
-  const window: { date: string; dow: string; done: Record<string, boolean> }[] = [];
+  const window: {
+    date: string;
+    dow: string;
+    done: Record<string, boolean>;
+    noData: Set<string>;
+  }[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = subDays(end, i);
     const date = format(d, "yyyy-MM-dd");
@@ -59,6 +64,7 @@ export function buildHabitSeries(
       date,
       dow: DOW[d.getDay()],
       done: (getDailyLog(date)?.habits ?? {}) as Record<string, boolean>,
+      noData: new Set(getDailyLog(date)?.noData ?? []),
     });
   }
 
@@ -66,7 +72,9 @@ export function buildHabitSeries(
     const samples: HabitDaySample[] = window.map((w) => {
       const scheduled = isHabitScheduled(key, w.date);
       const isToday = w.date === today;
-      const preAdoption = since == null || w.date < since;
+      // No source for this habit on this day (a restored legacy day), or the
+      // day predates the first log entirely — either way it is not a miss.
+      const preAdoption = since == null || w.date < since || w.noData.has(key);
       return {
         date: w.date,
         dow: w.dow,
