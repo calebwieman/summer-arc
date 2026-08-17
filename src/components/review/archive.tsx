@@ -79,15 +79,13 @@ export function Archive() {
   };
 
   return (
-    <section className="border-t border-line-soft pt-5 pb-8">
-      <div className="flex items-baseline justify-between">
-        <h2 className="kicker">Archive</h2>
-        <span className="meta">
-          {dayCount} {dayCount === 1 ? "day" : "days"} stored
-        </span>
-      </div>
+    <section className="border-t border-line-soft pt-6 pb-8 text-center">
+      <h2 className="kicker">Archive</h2>
+      <p className="meta mt-1.5">
+        {dayCount} {dayCount === 1 ? "day" : "days"} stored
+      </p>
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-5 flex gap-2">
         <Action
           onPress={() => {
             haptic(10);
@@ -137,7 +135,7 @@ export function Archive() {
         }}
       />
 
-      <p className="mt-3 min-h-4 font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-3">
+      <p className="mt-4 min-h-4 text-center font-mono text-[9.5px] uppercase tracking-[0.16em] text-ink-3">
         {status ?? "backup writes a file you can keep"}
       </p>
     </section>

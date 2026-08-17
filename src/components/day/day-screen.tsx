@@ -656,7 +656,7 @@ export function DayScreen() {
                     onReturn={() => setSelected(null)}
                   />
                 ) : (
-                  <section className="mx-5 rounded-lg border border-line-soft bg-surface px-5 py-8">
+                  <section className="mx-5 rounded-lg border border-line-soft bg-surface px-5 py-10 text-center">
                     <h1 className="text-[32px] font-light leading-none tracking-[-0.03em] text-ink">
                       Day closed
                     </h1>
@@ -692,28 +692,31 @@ export function DayScreen() {
                 transition={S_PAGE}
                 className="flex h-full flex-col overflow-y-auto px-5 pt-[calc(env(safe-area-inset-top)+8px)]"
               >
-                <div className="flex items-baseline justify-between pb-1">
-                  {/* A real heading, focused on entry: the morph replaces the
-                      whole surface, and without this a screen reader is left
-                      on a control that no longer exists and announces nothing. */}
+                {/* A real heading, focused on entry: the morph replaces the
+                    whole surface, and without this a screen reader is left on a
+                    control that no longer exists and announces nothing. */}
+                <div className="pb-2 text-center">
                   <h1
                     ref={recordHeadingRef}
                     tabIndex={-1}
                     className="kicker outline-none"
                   >
-                    The record — last 14 days
+                    The record
                   </h1>
-                  <ThemeToggle />
+                  <p className="meta mt-1.5">last 14 days · never miss twice</p>
                 </div>
                 <FourteenDay series={series} />
                 <Archive />
-                <button
-                  type="button"
-                  onClick={() => setMode("day")}
-                  className="min-h-11 pb-6 text-center font-mono text-[9px] uppercase tracking-[0.2em] text-ink-3 hover:text-ink-2"
-                >
-                  pull up to return
-                </button>
+                <div className="flex flex-col items-center gap-4 pb-8">
+                  <ThemeToggle />
+                  <button
+                    type="button"
+                    onClick={() => setMode("day")}
+                    className="min-h-11 text-center font-mono text-[9px] uppercase tracking-[0.2em] text-ink-3 hover:text-ink-2"
+                  >
+                    pull up to return
+                  </button>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

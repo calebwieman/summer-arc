@@ -142,10 +142,7 @@ export function FourteenDay({ series }: { series: HabitSeries[] }) {
 
   return (
     <div className="pb-10">
-      {/* The heading now lives on the surface itself so it can take focus. */}
-      <p className="meta text-right">never miss twice</p>
-
-      <div className="mt-5 divide-y divide-line-soft/60">
+      <div className="divide-y divide-line-soft/60">
         {series.map((s, i) => (
           <Row key={s.key} s={s} index={i} />
         ))}
