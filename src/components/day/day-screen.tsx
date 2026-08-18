@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AnimatePresence,
-  LayoutGroup,
   animate,
   motion,
   useMotionValue,
@@ -62,6 +61,50 @@ function step(mode: Mode, delta: 1 | -1): Mode {
 /** Snapping the surface back to rest when a pull is released short. */
 const S_SNAP = { type: "spring", stiffness: 700, damping: 44, mass: 0.8 } as const;
 
+/**
+ * How one surface replaces another.
+ *
+ * It used to be a cross-fade of two full-screen text layers: at the midpoint
+ * the entire day — past rail, focus card, register — sat legibly at about 40%
+ * opacity *over* the record's fourteen rows of monospace. Two dense text
+ * layers superimposed. It read as a dissolve rather than as a move, and it is
+ * exactly the class of treatment that has been rejected twice on legibility.
+ *
+ * Now they stack. The surface you are leaving recedes and lifts — the same
+ * pose the pull has already been previewing under your finger for the last
+ * quarter second — and the one arriving rises into its place. The outgoing
+ * layer's opacity keyframe finishes at 45% of the transition, so it is already
+ * at half strength before the incoming one is legible. That is the mechanical
+ * answer to the legibility objection rather than a promise about taste.
+ */
+const SURF = {
+  enter: (dir: number) => ({
+    y: dir >= 0 ? "16%" : "-16%",
+    opacity: 0,
+    scale: 1,
+  }),
+  here: {
+    y: 0,
+    opacity: 1,
+    scale: 1,
+    // Late and quick. The surface is already sliding into place before it
+    // starts becoming legible, so the movement is what you read first.
+    transition: { ...SURFACE, opacity: { duration: 0.26, delay: 0.1 } },
+  },
+  gone: (dir: number) => ({
+    scale: dir >= 0 ? 0.94 : 1.015,
+    y: dir >= 0 ? -14 : 14,
+    opacity: 0,
+    // Early and quicker. These surfaces have no background of their own, so
+    // an outgoing layer held at half strength is not "behind" the incoming
+    // one — it shows straight through it. Measured: holding it at 0.5 left
+    // both layers above 0.61 for a stretch of the transition, which is the
+    // superimposed-text problem again with extra steps. It leaves properly
+    // now, and the two fades barely overlap.
+    transition: { ...SURFACE, opacity: { duration: 0.16, ease: "easeIn" } },
+  }),
+};
+
 /** Where a pull is heading, in the words the destination uses for itself. */
 const DESTINATION: Record<Mode, string> = {
   day: "Today",
@@ -70,8 +113,16 @@ const DESTINATION: Record<Mode, string> = {
 };
 
 
-/** Bands arrive top-down; the live block leads so the eye lands there first. */
-function rise(order: number, reduced: boolean | null) {
+/**
+ * Bands arrive top-down; the live block leads so the eye lands there first.
+ *
+ * Once per session, though. Swiping up from the record used to replay the
+ * whole 300ms staggered curtain-raise, so coming back to today was an
+ * introduction rather than an arrival — and the surface transition it plays
+ * over is now doing that job properly on its own.
+ */
+function rise(order: number, reduced: boolean | null, first = true) {
+  if (!first) return { initial: false as const };
   return {
     initial: reduced ? { opacity: 0 } : { opacity: 0, y: 12 },
     animate: { opacity: 1, y: 0 },
@@ -106,14 +157,17 @@ function rise(order: number, reduced: boolean | null) {
  * fault. If the morning ever needs to be read at a glance, this is the number
  * to bring down, not the blur.
  *
- * WHEEL_PULL is the foreshortening. Rows sit in normal flow at even spacing,
- * but a cylinder's rows crowd together as they turn away, so each one is drawn
- * back toward the seat by a little more than the last. Without it the tilt
- * opens a gap under every row and the stack reads as slats, not a surface.
+ * WHEEL_PULL is the foreshortening ceiling. Rows sit in normal flow at even
+ * spacing, but a cylinder's rows crowd together as they turn away, so each one
+ * is drawn back toward the seat by a little more than the last. Without it the
+ * tilt opens a gap under every row and the stack reads as slats, not a
+ * surface. It approaches the ceiling rather than hitting it — see `pose`.
  */
 const WHEEL_STEP = 12;
 const WHEEL_MAX = 58;
 const WHEEL_PULL = 44;
+/** How fast the foreshortening approaches its ceiling. Larger = later. */
+const WHEEL_DECAY = 6.6;
 
 
 
@@ -132,7 +186,24 @@ function pose(d: number, side: Side, reduced: boolean | null, live = false) {
     };
   }
   const tip = Math.min(WHEEL_MAX, d * WHEEL_STEP);
-  const pull = Math.min(WHEEL_PULL, d * d);
+  /*
+    Foreshortening, as an asymptote rather than a clamped parabola.
+
+    It used to be `min(44, d²)`, which reaches its ceiling at d = 7 — so every
+    row from the seventh outward sat at exactly the same offset. The far rim
+    had no gradient at all, which is precisely why it read as a wall pinned to
+    the top of the rail instead of as a surface curving away. This never
+    saturates: the steps get smaller and smaller but they never reach zero.
+
+    A gaussian rather than a plain exponential, because the *shape* near the
+    seat matters more than the shape at the rim. An exponential starts steep —
+    ten pixels at d = 1, nineteen at d = 2 — which closed the gaps between the
+    rows nearest the card and collided the upcoming rail outright, since those
+    rows size themselves by how close they are and can be short. This tracks
+    the old d² almost exactly for the first three rows (1.0, 3.9, 8.2 against
+    1, 4, 9) and only then bends over.
+  */
+  const pull = WHEEL_PULL * (1 - Math.exp(-((d / WHEEL_DECAY) ** 2)));
   return {
     // Away from you on both sides: the top of a past row leans back, the
     // bottom of an upcoming one does.
@@ -644,6 +715,7 @@ function Register({
     }
   }
   const floating = new Set(day.floating);
+  const reduced = useReducedMotion();
   /*
     Where the wheel is parked. One marker, not a flag per letter — two habits
     can share a block, and two elements sharing a layoutId is how you get
@@ -813,7 +885,16 @@ function Register({
                   makes it slide under the finger instead of blinking across. */}
               {k === seatedId ? (
                 <motion.span
-                  layoutId="register-seat"
+                  /*
+                    No shared element under reduced motion. Motion drops the
+                    transform half of a layout animation there, so a shared
+                    layoutId degrades to a jump-cut with no crossfade — worse
+                    than two elements fading independently, which is what this
+                    becomes instead.
+                  */
+                  layoutId={reduced ? undefined : "register-seat"}
+                  initial={reduced ? { opacity: 0 } : false}
+                  animate={{ opacity: 1 }}
                   aria-hidden
                   className="absolute inset-y-[9px] -inset-x-[3px] rounded-sm border border-line-mid bg-surface-2"
                   transition={NOTCH}
@@ -1083,6 +1164,8 @@ export function DayScreen() {
   // gated behind `clock.ready`, so nothing rendered before mount can mismatch.
   const [habits, setHabits] = useState<HabitDef[]>(getHabits);
   const [mode, setMode] = useState<Mode>("day");
+  /** Which way the stack last moved — deeper (+1) or back toward today (-1). */
+  const [modeDir, setModeDir] = useState(1);
   /** A past day opened for backfill from the history surface. */
   const [pickedDate, setPickedDate] = useState<string | null>(null);
   /** Bumped after any write so history recounts without a full reload. */
@@ -1098,6 +1181,15 @@ export function DayScreen() {
   const deeper = step(mode, 1);
   const shallower = step(mode, -1);
 
+  const go = useCallback(
+    (next: Mode) => {
+      if (next === mode) return;
+      setModeDir(STACK.indexOf(next) > STACK.indexOf(mode) ? 1 : -1);
+      setMode(next);
+    },
+    [mode],
+  );
+
   /*
     Arrow keys walk the same stack. The register used to carry a "pull for
     record" button, which was also the only route through for a keyboard or
@@ -1108,14 +1200,14 @@ export function DayScreen() {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
-      if (e.key === "ArrowDown" || e.key === "PageDown") setMode(deeper);
-      else if (e.key === "ArrowUp" || e.key === "PageUp") setMode(shallower);
+      if (e.key === "ArrowDown" || e.key === "PageDown") go(deeper);
+      else if (e.key === "ArrowUp" || e.key === "PageUp") go(shallower);
       else return;
       e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [deeper, shallower]);
+  }, [deeper, shallower, go]);
 
   const recoil = useMotionValue(0);
   /*
@@ -1144,8 +1236,41 @@ export function DayScreen() {
   const hintUp = useTransform(pullT, [-0.85, -0.5], [1, 0], { clamp: true });
   /** A gesture is running: the wheel drops its stagger and the rim its blur. */
   const [live, setLive] = useState(false);
+  /*
+    The register claimed this gesture.
+
+    Both consumers can act on one finger: the register scrubs from pointer
+    events while Motion's drag reads the same finger's vertical component off
+    window listeners, so a diagonal used to change the block *and* the surface.
+    One finger, two outcomes. Motion has no way to cancel a drag in flight, so
+    the claim is honoured at the end instead — the surface still resists and
+    springs back, it just does not commit.
+
+    Cleared on drag start, which for a gesture beginning on the register fires
+    at three pixels, well before the scrub's cone decides at ten.
+  */
+  const claimed = useRef(false);
+  const handleLive = useCallback((active: boolean) => {
+    setLive(active);
+    if (active) claimed.current = true;
+  }, []);
+  /** The day surface has been shown once; its entrance is spent. */
+  const entered = useRef(false);
+  useEffect(() => {
+    entered.current = true;
+  }, []);
   /** The housing's own tip, kicked each time the wheel lands on a new seat. */
   const drum = useMotionValue(0);
+  /*
+    Anticipation. Before the arriving card flies in, the slot it lands in dips
+    five pixels the way the wheel is turning, so the card enters over a surface
+    that is already moving with it rather than onto a static shelf. Five
+    pixels: any more and it reads as a glitch rather than as a breath.
+
+    It cannot be a variant — the dip belongs to the container, which survives
+    the change, while the variants belong to the cards, which do not.
+  */
+  const seatDip = useMotionValue(0);
   /** Which way the wheel last turned. Drives every entrance and exit on it. */
   const [dir, setDir] = useState(0);
   const loadedFor = useRef<string>("");
@@ -1329,7 +1454,12 @@ export function DayScreen() {
       times: [0, 0.18, 0.52, 1],
       ease: IMPACT,
     });
-  }, [focusIndex, drum, reduced]);
+    animate(seatDip, [0, d * 5 * gain, 0], {
+      duration: 0.5,
+      times: [0, 0.16, 1],
+      ease: IMPACT,
+    });
+  }, [focusIndex, drum, seatDip, reduced]);
 
   const lastPastEnd =
     [...day.blocks].reverse().find((b) => b.phase === "past")?.endMin ?? null;
@@ -1387,13 +1517,17 @@ export function DayScreen() {
           bottom: deeper === mode ? 0.06 : 0.22,
         }}
         dragMomentum={false}
-        onDragStart={() => setLive(true)}
+        onDragStart={() => {
+          claimed.current = false;
+          setLive(true);
+        }}
         onDrag={(_, i) => pull.set(i.offset.y)}
         onDragEnd={(_, i) => {
           pull.set(0);
           setLive(false);
-          if (i.offset.y > PULL_COMMIT) setMode(deeper);
-          else if (i.offset.y < -PULL_COMMIT) setMode(shallower);
+          if (claimed.current) return;
+          if (i.offset.y > PULL_COMMIT) go(deeper);
+          else if (i.offset.y < -PULL_COMMIT) go(shallower);
         }}
         transition={S_SNAP}
         className="flex h-full flex-col"
@@ -1412,24 +1546,24 @@ export function DayScreen() {
               ? undefined
               : { scale: depthScale, opacity: depthDim, y: depthLift }
           }
-          className="flex h-full flex-col"
+          className="relative h-full"
         >
-        <LayoutGroup>
-          <AnimatePresence mode="popLayout" initial={false}>
+          <AnimatePresence custom={modeDir} initial={false}>
             {mode === "day" ? (
               <motion.div
                 key="day"
-                layout
-                initial={reduced ? { opacity: 0 } : { opacity: 0, y: -14 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={reduced ? { opacity: 0 } : { opacity: 0, y: 16 }}
+                custom={modeDir}
+                variants={SURF}
+                initial={reduced ? { opacity: 0 } : "enter"}
+                animate={reduced ? { opacity: 1 } : "here"}
+                exit={reduced ? { opacity: 0 } : "gone"}
                 transition={SURFACE}
                 // Clearance for the status-bar band lives in .app-top — see
                 // globals.css for why it is a named class rather than an
                 // arbitrary value repeated at three call sites.
-                className="app-top flex h-full flex-col"
+                className="app-top absolute inset-0 flex flex-col"
               >
-                <motion.div {...rise(0, reduced)} className="shrink-0">
+                <motion.div {...rise(0, reduced, !entered.current)} className="shrink-0">
                   <Masthead
                     day={day}
                     seconds={seconds}
@@ -1467,12 +1601,18 @@ export function DayScreen() {
                   style={
                     reduced
                       ? undefined
-                      : { rotateX: drum, transformPerspective: 1400 }
+                      : // 900, not 1400. The same degrees of kick produce
+                        // about 1.55× the apparent displacement, which is what
+                        // takes the detent from theoretical to visible. It only
+                        // affects the housing: the rows get their perspective
+                        // from their own rail below, so the resting geometry is
+                        // untouched.
+                        { rotateX: drum, transformPerspective: 900 }
                   }
                   className="flex min-h-0 flex-1 flex-col"
                 >
                   <motion.div
-                    {...rise(1, reduced)}
+                    {...rise(1, reduced, !entered.current)}
                     style={
                       reduced
                         ? undefined
@@ -1495,6 +1635,10 @@ export function DayScreen() {
                   {/* initial={false}: the first card of the session is already
                       where it belongs, and flying it in would say the wheel
                       turned when nothing had. */}
+                  <motion.div
+                    style={reduced ? undefined : { y: seatDip }}
+                    className="shrink-0"
+                  >
                   <AnimatePresence mode="popLayout" custom={dir} initial={false}>
                     {showFocus ? (
                       <FocusBlock
@@ -1532,9 +1676,10 @@ export function DayScreen() {
                       </motion.section>
                     )}
                   </AnimatePresence>
+                  </motion.div>
 
                   <motion.div
-                    {...rise(3, reduced)}
+                    {...rise(3, reduced, !entered.current)}
                     style={
                       reduced
                         ? undefined
@@ -1556,7 +1701,7 @@ export function DayScreen() {
                 {/* The register is the one thing that must never be squeezed
                     off: it is the only route to a habit whose block has closed. */}
                 <motion.div
-                  {...rise(4, reduced)}
+                  {...rise(4, reduced, !entered.current)}
                   className="shrink-0 space-y-3 pb-3"
                 >
                   {week.length > 0 ? <WeekStrip week={week} /> : null}
@@ -1567,19 +1712,20 @@ export function DayScreen() {
                     focusIndex={focusIndex}
                     onRecall={setSelected}
                     onFloating={setFloatingId}
-                    onLive={setLive}
+                    onLive={handleLive}
                   />
                 </motion.div>
               </motion.div>
             ) : mode === "record" ? (
               <motion.div
                 key="record"
-                layout
-                initial={reduced ? { opacity: 0 } : { opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={reduced ? { opacity: 0 } : { opacity: 0, y: -16 }}
+                custom={modeDir}
+                variants={SURF}
+                initial={reduced ? { opacity: 0 } : "enter"}
+                animate={reduced ? { opacity: 1 } : "here"}
+                exit={reduced ? { opacity: 0 } : "gone"}
                 transition={SURFACE}
-                className="app-top-scroll flex h-full flex-col overflow-hidden px-5"
+                className="app-top-scroll absolute inset-0 flex flex-col overflow-hidden px-5"
               >
                 {/* my-auto, not justify-center: with auto margins the block
                     centres while there is room to spare and falls back to
@@ -1607,12 +1753,13 @@ export function DayScreen() {
             ) : (
               <motion.div
                 key="history"
-                layout
-                initial={reduced ? { opacity: 0 } : { opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={reduced ? { opacity: 0 } : { opacity: 0, y: -16 }}
+                custom={modeDir}
+                variants={SURF}
+                initial={reduced ? { opacity: 0 } : "enter"}
+                animate={reduced ? { opacity: 1 } : "here"}
+                exit={reduced ? { opacity: 0 } : "gone"}
                 transition={SURFACE}
-                className="app-top-scroll flex h-full flex-col overflow-hidden px-5"
+                className="app-top-scroll absolute inset-0 flex flex-col overflow-hidden px-5"
               >
                 <div className="pb-5 text-center">
                   <h1
@@ -1632,7 +1779,6 @@ export function DayScreen() {
               </motion.div>
             )}
           </AnimatePresence>
-        </LayoutGroup>
         </motion.div>
       </motion.div>
 

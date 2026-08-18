@@ -202,7 +202,22 @@ export function Latch({
       onPointerLeave={clearHold}
       onPointerCancel={clearHold}
       className="relative w-full select-none overflow-hidden rounded-md border border-line-soft bg-surface-2 outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-      style={{ height: TRACK_H, touchAction: "pan-y" }}
+      /*
+        touch-action: none, and it says what was already happening.
+
+        This read `pan-y` for a long time, which looks like "allow vertical
+        scrolling through me" — but touch-action intersects along the ancestor
+        chain, and the drag ancestor is `pan-x`. pan-y ∩ pan-x is empty, so the
+        browser was already handling nothing and every touch was arriving as
+        pointer events. That is precisely why both gestures work from this one
+        60px-tall element: the carriage drags sideways *and* a vertical swipe
+        from here still reaches the surface stack.
+
+        It worked for a reason nobody had written down, and the next person to
+        tidy `pan-y` into `pan-x` would have broken one of the two. `none`
+        behaves identically and is the honest declaration.
+      */
+      style={{ height: TRACK_H, touchAction: "none" }}
     >
       <motion.div aria-hidden className="absolute inset-0 bg-ink" style={{ opacity: fill }} />
 

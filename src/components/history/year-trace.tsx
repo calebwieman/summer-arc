@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { eachDayOfInterval, format, parseISO, subDays } from "date-fns";
+import { SWEEP } from "@/lib/motion";
 import { getHabits } from "@/lib/habits";
 import { earliestLogDate, scoreDay } from "@/lib/stats";
 
@@ -50,6 +52,8 @@ export function YearTrace({
     return out;
   }, [today, days, version]);
 
+  const reduced = useReducedMotion();
+
   return (
     <section>
       <h3 className="kicker text-center">The year</h3>
@@ -58,7 +62,26 @@ export function YearTrace({
         className="mt-3 touch-pan-x overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex" style={{ gap: GAP }}>
           {cols.map((week, i) => (
-            <div key={i} className="flex flex-col" style={{ gap: GAP }}>
+            /*
+              The year draws itself, left to right, in about a third of a
+              second. Staggered by *column*, never by cell — 364 springs would
+              be 364 rAF subscriptions for marks four pixels across, where
+              nobody could tell a spring from a tween anyway. Fifty-two tweens
+              at six milliseconds apart is the whole effect for almost none of
+              the cost.
+            */
+            <motion.div
+              key={i}
+              initial={reduced ? false : { opacity: 0, scaleY: 0.4 }}
+              animate={{ opacity: 1, scaleY: 1 }}
+              transition={{
+                duration: 0.5,
+                delay: Math.min(0.4, i * 0.006),
+                ease: SWEEP,
+              }}
+              className="flex origin-center flex-col"
+              style={{ gap: GAP }}
+            >
               {week.map((d) => {
                 const none = d.ratio < 0;
                 const full = d.ratio >= 1;
@@ -85,7 +108,7 @@ export function YearTrace({
                   />
                 );
               })}
-            </div>
+            </motion.div>
           ))}
         </div>
       </div>

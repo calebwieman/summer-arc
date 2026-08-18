@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
-import { motion } from "motion/react";
+import { useMemo, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { ROW } from "@/lib/motion";
 import {
   addMonths,
   eachDayOfInterval,
@@ -16,6 +17,13 @@ import { earliestLogDate, scoreDay } from "@/lib/stats";
 import { getHabits } from "@/lib/habits";
 
 const DOW = ["M", "T", "W", "T", "F", "S", "S"];
+
+/** Later months come from the right, earlier ones from the left. */
+const MONTH = {
+  enter: (dir: number) => ({ x: dir * 24, opacity: 0 }),
+  here: { x: 0, opacity: 1 },
+  gone: (dir: number) => ({ x: -dir * 24, opacity: 0 }),
+};
 
 /** Monday-first column for a JS weekday. */
 function col(day: number): number {
@@ -71,8 +79,18 @@ export function MonthGrid({
     // `version` is the invalidation signal after an edit.
   }, [month, today, version]);
 
-  const step = (delta: number) =>
+  /*
+    Paging is the one thing this surface does, and it used to teleport: thirty
+    cells replaced in a single frame with no direction and nothing to follow.
+    The grid now leaves the way you sent it and the next one arrives from the
+    other side — the same directional grammar the day's seat already uses, so
+    the app says "later" and "earlier" the same way in both places.
+  */
+  const [dir, setDir] = useState(1);
+  const step = (delta: number) => {
+    setDir(delta);
     onMonth(format(addMonths(parseISO(month), delta), "yyyy-MM-dd"));
+  };
 
   return (
     <section>
@@ -85,7 +103,22 @@ export function MonthGrid({
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <h3 className="kicker">{cells.label}</h3>
+        <div className="relative overflow-hidden">
+          <AnimatePresence mode="popLayout" custom={dir} initial={false}>
+            <motion.h3
+              key={cells.label}
+              custom={dir}
+              variants={MONTH}
+              initial="enter"
+              animate="here"
+              exit="gone"
+              transition={ROW}
+              className="kicker whitespace-nowrap"
+            >
+              {cells.label}
+            </motion.h3>
+          </AnimatePresence>
+        </div>
         <button
           type="button"
           aria-label="Next month"
@@ -104,7 +137,18 @@ export function MonthGrid({
         ))}
       </div>
 
-      <div className="mt-1 grid grid-cols-7 gap-x-1 gap-y-2">
+      <div className="relative overflow-hidden">
+      <AnimatePresence mode="popLayout" custom={dir} initial={false}>
+      <motion.div
+        key={cells.label}
+        custom={dir}
+        variants={MONTH}
+        initial="enter"
+        animate="here"
+        exit="gone"
+        transition={ROW}
+        className="mt-1 grid grid-cols-7 gap-x-1 gap-y-2"
+      >
         {Array.from({ length: cells.lead }).map((_, i) => (
           <span key={`lead-${i}`} />
         ))}
@@ -152,13 +196,15 @@ export function MonthGrid({
                     }`}
                     initial={false}
                     animate={{ width: `${Math.max(ratio * 100, ratio > 0 ? 18 : 0)}%` }}
-                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    transition={ROW}
                   />
                 </span>
               )}
             </button>
           );
         })}
+      </motion.div>
+      </AnimatePresence>
       </div>
     </section>
   );

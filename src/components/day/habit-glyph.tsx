@@ -7,7 +7,7 @@ import {
   useMotionValue,
   useReducedMotion,
 } from "motion/react";
-import { TICK } from "@/lib/motion";
+import { ROW, TICK } from "@/lib/motion";
 import type { HabitKey } from "@/lib/types";
 
 export type GlyphState =
@@ -87,8 +87,15 @@ export function HabitGlyph({
 
   return (
     <motion.span
-      layoutId={`habit-${habit}`}
-      transition={{ type: "spring", stiffness: 320, damping: 32, mass: 0.9 }}
+      /*
+        The glyph flies between the register and the record's rows, and that
+        flight is one of the two best moments in the app — but only when Motion
+        can animate the transform. Under reduced motion it drops that half of a
+        layout animation, leaving a jump-cut with no crossfade, which is worse
+        than not sharing the element at all. So there it simply isn't shared.
+      */
+      layoutId={reduced ? undefined : `habit-${habit}`}
+      transition={ROW}
       className="relative flex shrink-0 flex-col items-center gap-[3px]"
     >
       <span

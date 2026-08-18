@@ -1,6 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  animate,
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  useTransform,
+} from "motion/react";
+import { SWEEP } from "@/lib/motion";
 import { Search } from "lucide-react";
 import { formatHeaderDate } from "@/lib/today";
 import { getAllDailyLogs } from "@/lib/storage";
@@ -11,12 +19,42 @@ import { YearTrace } from "./year-trace";
 /** Enough to pick one out; more would need a scroller, and this page has none. */
 const MAX_RESULTS = 3;
 
-function Stat({ value, label }: { value: string; label: string }) {
+/**
+ * One aggregate number, counted up rather than printed.
+ *
+ * A cliché, and it earns its place exactly once: these three are the only
+ * totals in the app, this is the only surface that shows them, and a number
+ * that climbs to 78 says "seventy-eight days of this" in a way that a number
+ * which is simply *there* does not. Suffix carries the percent sign so the
+ * count stays numeric.
+ */
+function Stat({
+  value,
+  suffix = "",
+  label,
+}: {
+  value: number;
+  suffix?: string;
+  label: string;
+}) {
+  const reduced = useReducedMotion();
+  const count = useMotionValue(reduced ? value : 0);
+  const shown = useTransform(count, (v) => `${Math.round(v)}${suffix}`);
+
+  useEffect(() => {
+    if (reduced) {
+      count.set(value);
+      return;
+    }
+    const run = animate(count, value, { duration: 0.6, ease: SWEEP });
+    return () => run.stop();
+  }, [value, count, reduced]);
+
   return (
     <div className="flex-1 text-center">
-      <p className="font-mono text-[20px] font-bold tabular-nums leading-none text-ink">
-        {value}
-      </p>
+      <motion.p className="font-mono text-[20px] font-bold tabular-nums leading-none text-ink">
+        {shown}
+      </motion.p>
       <p className="mono-xs mt-1.5 text-ink-3">{label}</p>
     </div>
   );
@@ -65,12 +103,9 @@ export function HistoryScreen({
   return (
     <div className="flex h-full min-h-0 flex-col gap-5 pb-2">
       <section className="flex shrink-0 items-start gap-2">
-        <Stat value={String(stats.daysLogged)} label="days" />
-        <Stat
-          value={`${Math.round(stats.averageRatio * 100)}%`}
-          label="average"
-        />
-        <Stat value={String(stats.perfectDays)} label="clean" />
+        <Stat value={stats.daysLogged} label="days" />
+        <Stat value={stats.averageRatio * 100} suffix="%" label="average" />
+        <Stat value={stats.perfectDays} label="clean" />
       </section>
 
       <div className="shrink-0">
