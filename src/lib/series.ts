@@ -1,7 +1,12 @@
 import { format, parseISO, subDays } from "date-fns";
 import { getHabits, isHabitScheduledOn } from "./habits";
 import { bestStreak, currentStreak } from "./stats";
-import { getAllDailyLogs, getDailyLog, hasMissedTwice } from "./storage";
+import {
+  getAllDailyLogs,
+  getDailyLog,
+  hasMissedTwice,
+  isOnTheLine,
+} from "./storage";
 import { getTodayString } from "./today";
 import type { HabitKey } from "./types";
 
@@ -31,6 +36,8 @@ export interface HabitSeries {
   /** doneCount / scheduledCount — the SAME window as the fraction, always. */
   rate: number;
   missedTwice: boolean;
+  /** One miss behind, and the next one makes two. */
+  onTheLine: boolean;
   /** Indices into `samples` of the current consecutive-miss run (length ≥ 2). */
   flagRun: number[];
   /** Consecutive scheduled days done, over the whole history — not just this window. */
@@ -115,6 +122,7 @@ export function buildHabitSeries(
       scheduledCount: counted.length,
       rate: counted.length === 0 ? 0 : doneCount / counted.length,
       missedTwice: hasMissedTwice(key),
+      onTheLine: isOnTheLine(key),
       flagRun: flagRun.length >= 2 ? flagRun : [],
       streak: currentStreak(habit, today),
       best: bestStreak(habit, today),

@@ -80,10 +80,13 @@ function Row({
   s,
   index,
   compact,
+  caption,
 }: {
   s: HabitSeries;
   index: number;
   compact: boolean;
+  /** At most one row on the page carries the on-the-line line. */
+  caption: boolean;
 }) {
   const flagged = new Set(s.flagRun);
   const d = compact ? TIGHT : FULL;
@@ -105,7 +108,20 @@ function Row({
         <HabitGlyph
           habit={s.key}
           code={s.code}
-          state={s.missedTwice ? "fault" : s.rate >= 0.8 ? "done" : "pending"}
+          /*
+            The glyph carries both warnings, which is what lets the captions be
+            rationed. With eight habits restored the page has no room for eight
+            lines of prose, and eight of them would not be a signal anyway.
+          */
+          state={
+            s.missedTwice
+              ? "fault"
+              : s.onTheLine
+                ? "overdue"
+                : s.rate >= 0.8
+                  ? "done"
+                  : "pending"
+          }
         />
         <span className="mono-xs truncate text-ink-2">{s.label}</span>
         {/* Beside the label, not beside the fraction. Right-aligning it put
@@ -162,8 +178,17 @@ function Row({
         ))}
       </div>
 
-      {s.missedTwice && !compact ? (
+      {/*
+        One caption slot, and at most one line in it. The app's only failure
+        signal used to fire after the second miss — a day too late to act on the
+        rule the whole thing is named for. The window where "never miss twice"
+        is actionable is exactly one day wide, and this is the app finally
+        speaking inside it.
+      */}
+      {compact ? null : s.missedTwice ? (
         <p className="mono-xs mt-1.5 text-bad">missed twice — fix today</p>
+      ) : caption ? (
+        <p className="mono-xs mt-1.5 text-warn">on the line — not twice</p>
       ) : null}
     </motion.div>
   );
@@ -172,12 +197,25 @@ function Row({
 export function FourteenDay({ series }: { series: HabitSeries[] }) {
   const axis = series[0]?.samples ?? [];
   const compact = series.length > 5;
+  /*
+    One on-the-line caption, not one per row. The signal is "the next miss
+    makes two" and it is only actionable on the habit whose block comes first,
+    so the first in register order gets the line and the rest carry it on their
+    glyph. Eight captions is a wall of text, and a wall of text is not a signal.
+  */
+  const lineIndex = series.findIndex((s) => s.onTheLine && !s.missedTwice);
 
   return (
     <div className="min-h-0 overflow-hidden">
       <div className="divide-y divide-line-soft/60">
         {series.map((s, i) => (
-          <Row key={s.key} s={s} index={i} compact={compact} />
+          <Row
+            key={s.key}
+            s={s}
+            index={i}
+            compact={compact}
+            caption={i === lineIndex}
+          />
         ))}
       </div>
 

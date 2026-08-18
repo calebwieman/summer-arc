@@ -78,6 +78,40 @@ export function DaySheet({
   );
 
   const done = habits.filter((h) => log?.habits?.[h.id]).length;
+  const marked = (log?.noData?.length ?? 0) > 0;
+
+  /*
+    Mark the whole day as one there is no answer for.
+
+    `noData` has existed on the log type since the migration, and everything
+    that scores — the streaks, the calendar, the year trace, the rolling rates —
+    already honours it: a habit listed there is dropped from the denominator
+    rather than counted as a miss. But the only thing that has ever written it
+    is the legacy importer. So a week with flu, four days travelling, a funeral:
+    today those are permanent misses that break a streak, dent a lifetime rate
+    for good, and make the never-miss-twice flag say something untrue. Every
+    long-run number in the app is quietly wrong in the same direction until
+    something can write this.
+
+    Whole-day and all-habits on purpose. Per-habit it would be a way to launder
+    a single miss, which is the one thing it must not become.
+  */
+  const toggleRest = useCallback(() => {
+    if (!date) return;
+    setLog((prev) => {
+      const base = prev ?? makeEmptyLog(date);
+      const all = getHabits()
+        .filter((h) => isHabitScheduledOn(h, date))
+        .map((h) => h.id);
+      const next: DailyLog = {
+        ...base,
+        noData: (base.noData?.length ?? 0) > 0 ? [] : all,
+      };
+      saveDailyLog(next);
+      onSaved?.();
+      return next;
+    });
+  }, [date, onSaved]);
 
   return (
     <Sheet
@@ -134,6 +168,26 @@ export function DaySheet({
               value={log?.note ?? ""}
               onChange={(v) => patch({ note: v })}
             />
+          </div>
+
+          <div className="border-t border-line-soft pt-5">
+            <button
+              type="button"
+              onClick={toggleRest}
+              aria-pressed={marked}
+              className={`mono-xs flex min-h-11 w-full items-center justify-center rounded-sm border transition-colors ${
+                marked
+                  ? "border-accent text-ink"
+                  : "border-line-mid text-ink-3 hover:text-ink-2"
+              }`}
+            >
+              {marked ? "counted as no data — undo" : "no answer for this day"}
+            </button>
+            <p className="mono-xs mt-2 text-center text-ink-4">
+              {marked
+                ? "dropped from every rate and streak, not counted as a miss"
+                : "illness, travel, a funeral — not a day you skipped"}
+            </p>
           </div>
         </div>
       ) : null}

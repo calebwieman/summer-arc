@@ -37,7 +37,7 @@ const FULL = [
   "Saturday",
   "Sunday",
 ];
-const H = 40;
+const H = 52;
 /** Below this many instances a rate is noise, and it says so. */
 const MIN_N = 4;
 
@@ -162,7 +162,7 @@ export function WeekdayProfile({
               aria-label={`${FULL[i]}, ${c.done} of ${c.scheduled} done`}
               aria-pressed={on}
               onClick={() => setPicked(on ? null : i)}
-              className="relative flex flex-1 items-end"
+              className="relative flex flex-1 flex-col items-stretch justify-end"
               style={{ height: H }}
             >
               {c.rate == null ? (
@@ -180,7 +180,7 @@ export function WeekdayProfile({
                     delay: Math.min(0.2, i * 0.03),
                     ease: SWEEP,
                   }}
-                  className={`w-full rounded-xs ${on ? "bg-ink" : "bg-ink/45"}`}
+                  className={`mx-auto w-[10px] rounded-pill ${on ? "bg-ink" : "bg-ink/45"}`}
                 />
               )}
             </button>

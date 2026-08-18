@@ -144,6 +144,32 @@ export function hasMissedTwice(habitKey: HabitKey): boolean {
 }
 
 /**
+ * One miss behind you, and the next one makes two.
+ *
+ * `hasMissedTwice` fires *after* the second miss — one day too late to act on
+ * the rule the whole app is named for. The window in which "never miss twice"
+ * is actionable is exactly one day wide, and until now the app was silent in
+ * it. Same lookback, same scored-day rule, same exclusion of today: this is
+ * that function stopped one miss earlier.
+ */
+export function isOnTheLine(habitKey: HabitKey): boolean {
+  const since = earliestLogDate();
+  const habit = getHabit(habitKey);
+  if (!since || !habit) return false;
+
+  const yesterday = subDays(parseISO(getTodayString()), 1);
+  const recent: boolean[] = [];
+
+  for (let i = 0; i < MISS_LOOKBACK_DAYS && recent.length < 1; i++) {
+    const date = format(subDays(yesterday, i), "yyyy-MM-dd");
+    if (!isScoredDay(date, habit, since)) continue;
+    recent.push(wasDone(date, habitKey));
+  }
+
+  return recent.length === 1 && !recent[0];
+}
+
+/**
  * The most recent session note before `beforeDate`. Shown while logging today's
  * training so the last workout is in view when you write this one — the thing a
  * runner actually wants at the moment of entry.

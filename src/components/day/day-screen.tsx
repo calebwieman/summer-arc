@@ -21,6 +21,7 @@ import { formatHeaderDate, makeEmptyLog } from "@/lib/today";
 import { HABITS_CHANGED, getHabits, type HabitDef } from "@/lib/habits";
 import { habitTally } from "@/lib/day";
 import { formatClock, formatDuration, formatTime, formatWatch } from "@/lib/clock";
+import { tomorrowLine, trainingLine } from "@/lib/week";
 import { haptic } from "@/lib/haptics";
 import { IMPACT, NOTCH, ROW, SEAT, SURFACE, TICK } from "@/lib/motion";
 import type { DailyLog, HabitKey } from "@/lib/types";
@@ -1257,6 +1258,31 @@ function FocusBlock({
             the block says what it is instead of waiting to be remembered. */}
         {b.block.brief ? (
           <p className="mono-xs mt-2 text-ink-3">{b.block.brief}</p>
+        ) : null}
+
+        {/*
+          Where this session sits in the week, and how much of the week's
+          minutes are already in the bank. Nothing else in the app shows
+          training VOLUME — the week strip, the seismograph, the month grid and
+          the year trace are all completion, and completion counts a fifteen
+          minute shakeout and a two hour long run as the same event.
+        */}
+        {b.block.kind === "training" ? (
+          <p className="mono-xs mt-1 text-ink-4">{trainingLine(day.date)}</p>
+        ) : null}
+
+        {/*
+          And on the last block of the day, what tomorrow asks for. Its whole
+          job is the one thing a read-only week is for: knowing at 21:40 what
+          the morning is, in time to set the alarm and put the kit by the door.
+          Dropped on a short screen — this card is already the tightest thing in
+          the app on Sunday, when Wind Down inherits the closing note AND the
+          shipped field from a day with no Content block.
+        */}
+        {b.block.label === "Wind Down" ? (
+          <p className="drop-when-short mono-xs mt-1 text-ink-4">
+            {tomorrowLine(day.date)}
+          </p>
         ) : null}
 
         {recalled ? (

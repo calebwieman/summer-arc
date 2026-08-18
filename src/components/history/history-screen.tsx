@@ -13,8 +13,8 @@ import { Search } from "lucide-react";
 import { formatHeaderDate } from "@/lib/today";
 import { getAllDailyLogs } from "@/lib/storage";
 import { overallStats } from "@/lib/stats";
-import { MonthGrid } from "./month-grid";
 import { YearTrace } from "./year-trace";
+import { WeekdayProfile } from "./weekday-profile";
 
 /** Enough to pick one out; more would need a scroller, and this page has none. */
 const MAX_RESULTS = 3;
@@ -80,7 +80,6 @@ export function HistoryScreen({
   version: number;
   onPick: (date: string) => void;
 }) {
-  const [month, setMonth] = useState(today);
   const [query, setQuery] = useState("");
 
   const stats = useMemo(() => overallStats(today), [today, version]);
@@ -108,14 +107,15 @@ export function HistoryScreen({
         <Stat value={stats.perfectDays} label="clean" />
       </section>
 
+      {/* The month used to live here and now has a page of its own, one swipe
+          right. What it leaves behind is spent on a reading nothing else in the
+          app can give: the same completion data, but cut by weekday. The
+          seismograph is fourteen days per habit with no weekday axis and the
+          month grid is per day with no weekday aggregation, so neither can
+          answer "am I soft on Thursdays" — and if the week has a soft spot it
+          is structural, which means it repeats fifty-two times a year. */}
       <div className="shrink-0">
-        <MonthGrid
-          month={month}
-          today={today}
-          onMonth={setMonth}
-          onPick={onPick}
-          version={version}
-        />
+        <WeekdayProfile today={today} version={version} />
       </div>
 
       {/* One region, two occupants. The year trace lives here until a search is

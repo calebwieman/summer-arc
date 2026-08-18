@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { format, parseISO, subDays } from "date-fns";
+import { format, parseISO } from "date-fns";
+import { weekDays } from "@/lib/week";
 import { blocksForDate, toMinutes } from "@/lib/schedule";
 import { getHabits } from "@/lib/habits";
 import { buildLogIndex } from "@/lib/log-index";
@@ -28,7 +29,7 @@ import { SWEEP } from "@/lib/motion";
  * here, and the app does not get to pretend it knows otherwise.
  */
 
-const H = 44;
+const H = 52;
 
 interface Bar {
   date: string;
@@ -53,11 +54,9 @@ export function WeekLoad({
     const ix = buildLogIndex();
     // Whichever habit owns training, however the registry has been edited.
     const training = getHabits().find((h) => h.anchor?.kind === "training");
-    const end = parseISO(today);
     const out: Bar[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = subDays(end, i);
-      const date = format(d, "yyyy-MM-dd");
+    for (const date of weekDays(today)) {
+      const d = parseISO(date);
       const block = blocksForDate(date).find((b) => b.kind === "training");
       const thrown =
         training != null &&
@@ -95,7 +94,7 @@ export function WeekLoad({
           return (
             <div
               key={b.date}
-              className="relative flex flex-1 items-end"
+              className="relative flex flex-1 flex-col items-stretch justify-end"
               style={{ height: H }}
               title={
                 b.label
@@ -120,7 +119,7 @@ export function WeekLoad({
                     delay: Math.min(0.2, i * 0.03),
                     ease: SWEEP,
                   }}
-                  className={`w-full rounded-xs ${
+                  className={`mx-auto w-[10px] rounded-pill ${
                     b.done
                       ? "bg-ink"
                       : b.isToday
