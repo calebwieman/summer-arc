@@ -13,6 +13,7 @@ import {
   migrateLegacyLog,
   planMigration,
 } from "./migrate";
+import { blocksForDate } from "./schedule";
 import { getTodayString } from "./today";
 import type { DailyLog, HabitKey } from "./types";
 
@@ -146,15 +147,34 @@ export function hasMissedTwice(habitKey: HabitKey): boolean {
  * The most recent session note before `beforeDate`. Shown while logging today's
  * training so the last workout is in view when you write this one — the thing a
  * runner actually wants at the moment of entry.
+ *
+ * Given a session label it looks for the last note written on a day that ran
+ * the same session, and only falls back to the most recent note of any kind if
+ * there isn't one. Six different training days a week is what forced this: with
+ * a plain "most recent", sitting down to write Thursday's stations showed you
+ * Wednesday's easy run, which tells you nothing. Comparable numbers only come
+ * from comparable sessions.
  */
 export function lastTrainingNote(
   beforeDate: string,
+  sessionLabel?: string,
 ): { date: string; note: string } | null {
   const prior = getAllDailyLogs().filter(
     (l) => l.date < beforeDate && l.trainingNote?.trim(),
   );
-  const last = prior[prior.length - 1];
-  return last ? { date: last.date, note: last.trainingNote.trim() } : null;
+  if (prior.length === 0) return null;
+
+  const sameSession = sessionLabel
+    ? prior.filter((l) =>
+        blocksForDate(l.date).some(
+          (b) => b.kind === "training" && b.label === sessionLabel,
+        ),
+      )
+    : [];
+
+  const pick = sameSession.length > 0 ? sameSession : prior;
+  const last = pick[pick.length - 1];
+  return { date: last.date, note: last.trainingNote!.trim() };
 }
 
 export interface BackupBundle {

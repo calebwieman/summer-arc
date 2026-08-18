@@ -1,6 +1,6 @@
 /**
  * Static weekly template. No calendar API — this file is the single source of
- * truth for what the day is supposed to look like.
+ * truth for what the day is supposed to look like, training included.
  *
  * All times are literal Central wall-clock ("HH:mm", 24h). The app assumes the
  * device is in Central; nothing here converts time zones.
@@ -21,6 +21,12 @@ export interface Block {
   end: string;
   label: string;
   kind: BlockKind;
+  /**
+   * What this block is actually for, in one line, shown on the focus card.
+   * Training uses it to carry the session so the app tells you what today is
+   * rather than waiting for you to remember it.
+   */
+  brief?: string;
 }
 
 /** 0 = Sunday … 6 = Saturday, matching `Date.prototype.getDay()`. */
@@ -40,21 +46,82 @@ const WIND_DOWN: Block = {
   kind: "rest",
 };
 
-/** Mon / Wed / Fri, everything up to the evening. */
-const MWF_DAY: Block[] = [
-  WAKE,
-  { start: "05:00", end: "06:00", label: "Run", kind: "training" },
-  { start: "06:20", end: "07:00", label: "Quiet Time", kind: "personal" },
-  { start: "07:00", end: "07:30", label: "Breakfast", kind: "personal" },
-  { start: "07:30", end: "09:00", label: "Admin", kind: "work" },
-  { start: "09:00", end: "09:50", label: "ENGL 1213", kind: "class" },
-  { start: "10:00", end: "12:20", label: "Deep Work", kind: "work" },
-  { start: "12:20", end: "13:00", label: "Lunch", kind: "personal" },
-  { start: "13:00", end: "13:50", label: "FMS 1013", kind: "class" },
-  { start: "15:00", end: "15:50", label: "SPAN 1115", kind: "class" },
-  { start: "16:30", end: "17:30", label: "Content", kind: "work" },
-  { start: "17:30", end: "18:30", label: "Dinner", kind: "personal" },
-];
+/*
+  The training week, built for Hyrox with no race booked — so it is a base and
+  build week, not a sharpening one, and the shape matters more than any single
+  session.
+
+  The race is eight 1km runs with a station between each, which is why running
+  gets three days and two of them are aerobic: the limiter for almost everyone
+  is not the stations, it is running at all after them. So one quality day, one
+  easy day, one long day, two station days at the Hyrox gym, and one strength
+  day. Everything else is running at OU.
+
+  The order is deliberate. Wednesday is easy because it sits between the two
+  station days, which are the two hardest sessions of the week. Strength lands
+  on Friday, one lighter day before the long run, rather than stacked against a
+  station day. Sunday has no training block at all — a rest day the app scores
+  as a rest day rather than a miss, which is what the anchor-by-kind rule in
+  `habits.ts` buys.
+*/
+
+const INTERVALS: Block = {
+  start: "05:00",
+  end: "06:00",
+  label: "Intervals",
+  kind: "training",
+  brief: "5 × 1km @ 10k effort · 2min jog",
+};
+
+const EASY_RUN: Block = {
+  start: "05:00",
+  end: "06:00",
+  label: "Easy Run",
+  kind: "training",
+  brief: "45–55 min conversational · nothing hard",
+};
+
+const STRENGTH: Block = {
+  start: "05:00",
+  end: "06:00",
+  label: "Strength",
+  kind: "training",
+  brief: "Squat · RDL · split squat · farmer carry — 4×6 heavy, clean",
+};
+
+const HYROX: Block = {
+  start: "05:30",
+  end: "07:15",
+  label: "Hyrox Session",
+  kind: "training",
+  brief: "Stations + compromised runs — log the splits",
+};
+
+const LONG_RUN: Block = {
+  start: "09:00",
+  end: "11:00",
+  label: "Long Run",
+  kind: "training",
+  brief: "75–90 min steady · last 15 at race effort",
+};
+
+/** Mon / Wed / Fri, everything up to the evening. Training varies by day. */
+function mwfDay(training: Block): Block[] {
+  return [
+    WAKE,
+    training,
+    { start: "06:20", end: "07:00", label: "Quiet Time", kind: "personal" },
+    { start: "07:00", end: "07:30", label: "Breakfast", kind: "personal" },
+    { start: "07:30", end: "09:00", label: "Admin", kind: "work" },
+    { start: "09:00", end: "09:50", label: "ENGL 1213", kind: "class" },
+    { start: "10:00", end: "12:20", label: "Deep Work", kind: "work" },
+    { start: "12:20", end: "13:00", label: "Lunch", kind: "personal" },
+    { start: "13:00", end: "13:50", label: "FMS 1013", kind: "class" },
+    { start: "15:00", end: "15:50", label: "SPAN 1115", kind: "class" },
+    { start: "16:30", end: "17:30", label: "Content", kind: "work" },
+    { start: "17:30", end: "18:30", label: "Dinner", kind: "personal" },
+  ];
+}
 
 /** Mon / Fri evening. */
 const MF_EVENING: Block[] = [
@@ -69,10 +136,10 @@ const WED_EVENING: Block[] = [
   WIND_DOWN,
 ];
 
-/** Tue / Thu. */
+/** Tue / Thu — the two station days at the Hyrox gym. */
 const TR_DAY: Block[] = [
   WAKE,
-  { start: "05:30", end: "07:15", label: "NSC Session", kind: "training" },
+  HYROX,
   { start: "07:15", end: "07:45", label: "Quiet Time", kind: "personal" },
   { start: "07:45", end: "10:30", label: "Deep Work", kind: "work" },
   { start: "10:30", end: "11:45", label: "POLY 1003", kind: "class" },
@@ -87,7 +154,7 @@ const TR_DAY: Block[] = [
 const SATURDAY: Block[] = [
   WAKE,
   { start: "06:20", end: "07:30", label: "Quiet Time", kind: "personal" },
-  { start: "09:00", end: "11:00", label: "Long Run", kind: "training" },
+  LONG_RUN,
   { start: "12:00", end: "14:00", label: "Content", kind: "work" },
   WIND_DOWN,
 ];
@@ -104,11 +171,11 @@ const SUNDAY: Block[] = [
 /** The weekly template, keyed by `Date.prototype.getDay()`. */
 export const WEEKLY_SCHEDULE: Record<Weekday, Block[]> = {
   0: SUNDAY,
-  1: [...MWF_DAY, ...MF_EVENING],
+  1: [...mwfDay(INTERVALS), ...MF_EVENING],
   2: TR_DAY,
-  3: [...MWF_DAY, ...WED_EVENING],
+  3: [...mwfDay(EASY_RUN), ...WED_EVENING],
   4: TR_DAY,
-  5: [...MWF_DAY, ...MF_EVENING],
+  5: [...mwfDay(STRENGTH), ...MF_EVENING],
   6: SATURDAY,
 };
 

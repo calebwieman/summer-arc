@@ -10,10 +10,12 @@ import { blocksForDate, weekdayOf } from "./schedule";
  * where it lands, and the schedule stays a dumb description of the day.
  *
  * Anchoring is a match rule rather than a block index because one habit can
- * legitimately own differently-named blocks on different days: training is the
- * 05:00 Run on MWF, the 05:30 NSC Session on TR and the 09:00 Long Run on
- * Saturday. Matching on kind covers all three; matching on label covers the
- * habits that name exactly one block.
+ * legitimately own differently-named blocks on different days, and the Hyrox
+ * week makes that the normal case rather than the exception: training is
+ * Intervals on Monday, a Hyrox Session on Tuesday and Thursday, an Easy Run on
+ * Wednesday, Strength on Friday and a Long Run on Saturday. Matching on kind
+ * covers all six; matching on label covers the habits that name exactly one
+ * block.
  */
 
 /** Which block a habit commits inside. Absent = the habit floats. */
@@ -82,7 +84,7 @@ export const BUILT_INS: HabitDef[] = [
     code: "T",
     icon: "run",
     days: ALL_DAYS,
-    // Kind, not label: Run / NSC Session / Long Run are all this habit.
+    // Kind, not label: every session in the Hyrox week is this one habit.
     anchor: { kind: "training" },
     order: 2,
   },

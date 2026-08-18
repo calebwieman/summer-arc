@@ -79,20 +79,22 @@ function rise(order: number, reduced: boolean | null) {
  * only input; from it comes how far the row has tipped away, how far it has
  * receded, and how much of it is still in focus.
  *
- * The curve is deliberately shallow. A real picker wheel folds its far rows
- * into an unreadable rim, and the past rail is the one thing on this screen
- * that has to stay readable at 22:00 when you are filling the day in. So the
- * tip stops at WHEEL_MAX and the type never turns edge-on — enough curvature
- * to feel like a surface, not so much that the morning becomes a smear.
+ * The curve is deep, and that was a choice made against a flatter, more
+ * legible one. A shallow drum keeps the whole morning crisp; this one turns
+ * far enough that the rim goes soft and the earliest rows read as distance
+ * rather than as text. WHEEL_MAX is what stops it turning edge-on — past
+ * about sixty degrees the type has no height left and the rail reads as a
+ * fault. If the morning ever needs to be read at a glance, this is the number
+ * to bring down, not the blur.
  *
  * WHEEL_PULL is the foreshortening. Rows sit in normal flow at even spacing,
  * but a cylinder's rows crowd together as they turn away, so each one is drawn
  * back toward the seat by a little more than the last. Without it the tilt
  * opens a gap under every row and the stack reads as slats, not a surface.
  */
-const WHEEL_STEP = 7;
-const WHEEL_MAX = 34;
-const WHEEL_PULL = 24;
+const WHEEL_STEP = 12;
+const WHEEL_MAX = 58;
+const WHEEL_PULL = 44;
 
 /** The wheel's own spring: quick, barely any overshoot, settles like a detent. */
 const S_WHEEL = { type: "spring", stiffness: 380, damping: 34, mass: 0.7 } as const;
@@ -109,27 +111,22 @@ function pose(d: number, side: Side, reduced: boolean | null) {
       rotateX: 0,
       y: 0,
       scale: 1,
-      opacity: Math.max(0.4, 1 - d * 0.06),
+      opacity: Math.max(0.6, 1 - d * 0.04),
       filter: "blur(0px)",
     };
   }
   const tip = Math.min(WHEEL_MAX, d * WHEEL_STEP);
-  const pull = Math.min(WHEEL_PULL, d * d * 0.55);
+  const pull = Math.min(WHEEL_PULL, d * d);
   return {
     // Away from you on both sides: the top of a past row leans back, the
     // bottom of an upcoming one does.
     rotateX: -side * tip,
     y: -side * pull,
-    scale: Math.max(0.94, 1 - d * 0.006),
-    /*
-      Depth, but only as much as legibility can pay for. The first pass ran
-      opacity down to 0.3 and blur up to 0.9px, and since a past row is dim
-      type to begin with, by the far rim the morning was fog — which is
-      exactly the complaint that got the horizontal collapse removed in the
-      first place. The tilt carries the depth now; these two only tint it.
-    */
-    opacity: Math.max(0.55, 1 - d * 0.04),
-    filter: d >= 5 ? `blur(${Math.min(0.5, (d - 4) * 0.12).toFixed(2)}px)` : "blur(0px)",
+    scale: Math.max(0.86, 1 - d * 0.012),
+    opacity: Math.max(0.42, 1 - d * 0.055),
+    // The rim goes soft. Chosen deliberately over a flatter, more legible
+    // curve — the far end of the day is context, and the seat is the work.
+    filter: d >= 4 ? `blur(${Math.min(0.9, (d - 3) * 0.2).toFixed(2)}px)` : "blur(0px)",
   };
 }
 
@@ -177,6 +174,13 @@ function WheelRow({
       transition={{ ...S_WHEEL, delay }}
     >
       <motion.div
+        /*
+          Origin at the left edge, and it is the whole reason the rail reads as
+          aligned. Scaling and tilting about the centre pulls a left-aligned
+          row inward as it recedes, so the column of start times fanned out
+          into a ragged margin — which looks like a bug, not like depth.
+        */
+        style={{ originX: 0, originY: side === -1 ? 1 : 0 }}
         initial={atSeat(side, reduced)}
         animate={pose(d, side, reduced)}
         transition={{ ...S_WHEEL, delay }}
@@ -743,8 +747,10 @@ function FocusBlock({
   const started = day.nowMin >= b.startMin;
   const lastSession = useMemo(
     () =>
-      b.fields.includes("trainingNote") ? lastTrainingNote(day.date) : null,
-    [b.fields, day.date],
+      b.fields.includes("trainingNote")
+        ? lastTrainingNote(day.date, b.block.label)
+        : null,
+    [b.fields, day.date, b.block.label],
   );
   const span = Math.max(1, b.endMin - b.startMin);
   const pct = useTransform(nowMV, (m) => {
@@ -840,6 +846,13 @@ function FocusBlock({
         <h1 className="mt-2.5 text-[32px] font-light leading-[1.02] tracking-[-0.03em] text-ink">
           {b.block.label}
         </h1>
+
+        {/* The session, from the template. Six different training days a week
+            is more than anyone should have to hold in their head at 05:00, so
+            the block says what it is instead of waiting to be remembered. */}
+        {b.block.brief ? (
+          <p className="mono-xs mt-2 text-ink-3">{b.block.brief}</p>
+        ) : null}
 
         {recalled ? (
           <button
