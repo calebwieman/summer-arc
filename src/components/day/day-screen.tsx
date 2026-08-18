@@ -19,6 +19,7 @@ import { formatHeaderDate, makeEmptyLog } from "@/lib/today";
 import { HABITS_CHANGED, getHabits, type HabitDef } from "@/lib/habits";
 import { habitTally } from "@/lib/day";
 import { formatClock, formatDuration } from "@/lib/clock";
+import { haptic } from "@/lib/haptics";
 import type { DailyLog, HabitKey } from "@/lib/types";
 import { FourteenDay } from "@/components/review/fourteen-day";
 import { HistoryScreen } from "@/components/history/history-screen";
@@ -128,25 +129,33 @@ function PastLine({ b }: { b: DayBlock }) {
 
 function Past({ blocks }: { blocks: DayBlock[] }) {
   if (blocks.length === 0) return null;
-  // Two named lines, not three. The rail is clipped by its container, and a
-  // line sliced through the middle reads as a rendering fault rather than as
-  // context — so the rail has to ask for less room than it is ever given.
-  const tail = blocks.slice(-2);
-  const head = blocks.slice(0, -2);
 
+  /*
+    Every block the day has already been through, stacked, each keeping its
+    own time. The older ones used to collapse into one horizontal run of
+    labels — which saved height but turned the morning into a caption you
+    cannot read a time off.
+
+    The rail is bottom-aligned inside a fixed region, so a long day overflows
+    at the top. That is why the container carries a fade rather than a hard
+    edge: the oldest lines dissolve instead of being sliced, which reads as
+    depth rather than as a clipping fault.
+  */
   return (
     <motion.div layout="position" className="px-5">
-      {head.length > 0 ? (
-        <p className="mono-xs truncate py-[3px] text-ink-4">
-          {head.map((b) => b.block.label).join(" · ")}
-        </p>
-      ) : null}
-      {tail.map((b, i) => (
+      {blocks.map((b, i) => (
         <motion.div
           key={b.index}
           initial={{ opacity: 0, x: -6 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={{ type: "spring", stiffness: 320, damping: 30, delay: 0.06 + i * 0.04 }}
+          // Stagger only the last few. Twelve rows each waiting on the one
+          // before it makes the morning arrive half a second late.
+          transition={{
+            type: "spring",
+            stiffness: 320,
+            damping: 30,
+            delay: 0.06 + Math.max(0, i - (blocks.length - 4)) * 0.04,
+          }}
         >
           <PastLine b={b} />
         </motion.div>
@@ -329,12 +338,108 @@ function Register({
   }
   const floating = new Set(day.floating);
 
+  /*
+    Scrub. Press anywhere on the register and slide sideways: the glyph nearest
+    the finger becomes the focused block, so the end of the day is one
+    continuous gesture instead of tap, throw, tap, throw.
+
+    Selection is by nearest centre, not by what is under the point. The event
+    target is no use — a touch pointer is implicitly captured by whatever took
+    the pointerdown, so it names the first glyph for the whole drag — and
+    point hit-testing drops the gaps between glyphs, which made the row stutter
+    and swallowed the first letter outright, since the gesture only engages
+    after ten pixels and that is already past the letter you started on.
+  */
+  const rowRef = useRef<HTMLDivElement>(null);
+  const marks = useRef<{ id: string; cx: number }[]>([]);
+  const scrubbing = useRef(false);
+  const scrubbed = useRef(false);
+  const startAt = useRef<{ x: number; y: number } | null>(null);
+  const lastPicked = useRef<string | null>(null);
+
+  const pick = useCallback(
+    (id: HabitKey) => {
+      if (id === lastPicked.current) return;
+      const idx = blockOf.get(id);
+      const isFloating = floating.has(id);
+      // Not scheduled today: nothing to open, and skipping it keeps the slide
+      // continuous rather than stalling on a dead letter.
+      if (idx == null && !isFloating) return;
+      lastPicked.current = id;
+      haptic(6);
+      if (idx != null) onRecall(idx);
+      else onFloating(id);
+    },
+    [blockOf, floating, onRecall, onFloating],
+  );
+
+  /** Whichever glyph centre the finger is closest to, gaps included. */
+  const nearest = (x: number) => {
+    let best: string | undefined;
+    let bestD = Infinity;
+    for (const m of marks.current) {
+      const d = Math.abs(m.cx - x);
+      if (d < bestD) {
+        bestD = d;
+        best = m.id;
+      }
+    }
+    return best;
+  };
+
   return (
-    <div className="flex items-center gap-3 px-5">
-      {/* Scrolls rather than shrinks: the register is a fixed row in a fixed
-          column, and once habits are user-defined there is no upper bound on
-          how many glyphs land here. */}
-      <div className="-mx-1 flex touch-pan-x gap-1.5 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div
+      /*
+        touch-none, and it is load-bearing. The drag ancestor is marked
+        touch-action: pan-x, so the browser owns horizontal gestures — and the
+        moment a scrub grew past a few pixels it claimed the gesture and fired
+        pointercancel, killing the event stream after exactly one move. Taking
+        horizontal touch outright here is what lets the slide run; the vertical
+        stack swipe still works because Motion drags from pointer events, which
+        keep flowing.
+      */
+      className="flex touch-none items-center justify-center px-5"
+      onPointerDown={(e) => {
+        // The row cannot reflow mid-gesture, so one read at the top is enough.
+        marks.current = [
+          ...(rowRef.current?.querySelectorAll<HTMLElement>("[data-habit]") ??
+            []),
+        ].map((el) => {
+          const r = el.getBoundingClientRect();
+          return { id: el.dataset.habit as string, cx: r.x + r.width / 2 };
+        });
+        startAt.current = { x: e.clientX, y: e.clientY };
+        scrubbing.current = false;
+        scrubbed.current = false;
+        lastPicked.current = null;
+      }}
+      onPointerMove={(e) => {
+        const s = startAt.current;
+        if (!s) return;
+        const dx = e.clientX - s.x;
+        const dy = e.clientY - s.y;
+        // Only claim it once the movement is clearly sideways, so a vertical
+        // swipe that happens to start here still reaches the surface stack.
+        if (!scrubbing.current) {
+          if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy)) return;
+          scrubbing.current = true;
+          scrubbed.current = true;
+        }
+        const id = nearest(e.clientX);
+        if (id) pick(id);
+      }}
+      onPointerUp={() => {
+        startAt.current = null;
+        scrubbing.current = false;
+      }}
+      onPointerCancel={() => {
+        startAt.current = null;
+        scrubbing.current = false;
+      }}
+    >
+      {/* Centred, and no longer a scroll box: scrubbing owns the horizontal
+          gesture here, so a scroller would only fight it. */}
+      <div ref={rowRef} className="flex gap-2 overflow-hidden">
         {habits.map((h) => {
           const k = h.id;
           const idx = blockOf.get(k);
@@ -345,7 +450,11 @@ function Register({
             <button
               key={k}
               type="button"
+              data-habit={k}
               title={h.label}
+              // aria-disabled, not disabled: the letter still reads and still
+              // takes a press, it simply has no block to open.
+              aria-disabled={!scheduled}
               aria-label={`${h.label} — ${
                 !scheduled
                   ? "not scheduled today"
@@ -353,15 +462,12 @@ function Register({
                     ? "done, open to change"
                     : "not logged, open to log"
               }`}
-              disabled={!scheduled}
-              // Recalls the block that owns this habit, which is the only way
-              // to reach one whose window has already closed. A habit with no
-              // block opens its own sheet, so it is reachable at any hour.
               onClick={() => {
-                if (idx != null) onRecall(idx);
-                else if (isFloating) onFloating(k);
+                // The slide already selected as it went.
+                if (scrubbed.current) return;
+                pick(k);
               }}
-              className="flex min-h-11 items-center disabled:cursor-default"
+              className="flex min-h-11 items-center px-1"
             >
               <HabitGlyph
                 habit={k}
@@ -821,7 +927,7 @@ export function DayScreen() {
                     shows fewer rows. */}
                 <motion.div
                   {...rise(1, reduced)}
-                  className="flex min-h-0 flex-[1.7] flex-col justify-end gap-3 overflow-hidden pb-1"
+                  className="fade-top flex min-h-0 flex-[1.7] flex-col justify-end gap-3 overflow-hidden pb-1"
                 >
                   <Past blocks={past} />
                 </motion.div>
