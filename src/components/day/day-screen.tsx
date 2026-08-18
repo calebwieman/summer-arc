@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AnimatePresence,
@@ -67,6 +68,147 @@ function rise(order: number, reduced: boolean | null) {
   };
 }
 
+/* ------------------------------------------------------------------ wheel */
+
+/**
+ * The column is a drum.
+ *
+ * The focus card is the seat — the one place on the wheel that faces you
+ * squarely. Everything else lies on the curve running away from it: the day
+ * behind you above, the day ahead below. A row's distance from the seat is the
+ * only input; from it comes how far the row has tipped away, how far it has
+ * receded, and how much of it is still in focus.
+ *
+ * The curve is deliberately shallow. A real picker wheel folds its far rows
+ * into an unreadable rim, and the past rail is the one thing on this screen
+ * that has to stay readable at 22:00 when you are filling the day in. So the
+ * tip stops at WHEEL_MAX and the type never turns edge-on — enough curvature
+ * to feel like a surface, not so much that the morning becomes a smear.
+ *
+ * WHEEL_PULL is the foreshortening. Rows sit in normal flow at even spacing,
+ * but a cylinder's rows crowd together as they turn away, so each one is drawn
+ * back toward the seat by a little more than the last. Without it the tilt
+ * opens a gap under every row and the stack reads as slats, not a surface.
+ */
+const WHEEL_STEP = 7;
+const WHEEL_MAX = 34;
+const WHEEL_PULL = 24;
+
+/** The wheel's own spring: quick, barely any overshoot, settles like a detent. */
+const S_WHEEL = { type: "spring", stiffness: 380, damping: 34, mass: 0.7 } as const;
+/** The seat's is looser, so the arriving card lands with a little weight. */
+const S_SEAT = { type: "spring", stiffness: 420, damping: 32, mass: 0.8 } as const;
+
+/** Which side of the seat a row is on: -1 above (past), +1 below (ahead). */
+type Side = 1 | -1;
+
+/** Where a row `d` places from the seat rests on the curve. */
+function pose(d: number, side: Side, reduced: boolean | null) {
+  if (reduced) {
+    return {
+      rotateX: 0,
+      y: 0,
+      scale: 1,
+      opacity: Math.max(0.4, 1 - d * 0.06),
+      filter: "blur(0px)",
+    };
+  }
+  const tip = Math.min(WHEEL_MAX, d * WHEEL_STEP);
+  const pull = Math.min(WHEEL_PULL, d * d * 0.55);
+  return {
+    // Away from you on both sides: the top of a past row leans back, the
+    // bottom of an upcoming one does.
+    rotateX: -side * tip,
+    y: -side * pull,
+    scale: Math.max(0.94, 1 - d * 0.006),
+    /*
+      Depth, but only as much as legibility can pay for. The first pass ran
+      opacity down to 0.3 and blur up to 0.9px, and since a past row is dim
+      type to begin with, by the far rim the morning was fog — which is
+      exactly the complaint that got the horizontal collapse removed in the
+      first place. The tilt carries the depth now; these two only tint it.
+    */
+    opacity: Math.max(0.55, 1 - d * 0.04),
+    filter: d >= 5 ? `blur(${Math.min(0.5, (d - 4) * 0.12).toFixed(2)}px)` : "blur(0px)",
+  };
+}
+
+/** Rows join and leave the wheel through the seat, because that is the truth. */
+function atSeat(side: Side, reduced: boolean | null) {
+  if (reduced) return { opacity: 0 };
+  return {
+    opacity: 0,
+    y: -side * 26,
+    // Flatter than its resting pose: it has just come over the top.
+    rotateX: side * 12,
+    scale: 0.95,
+    filter: "blur(1.4px)",
+  };
+}
+
+/**
+ * One row on the curve, in two layers.
+ *
+ * The outer one owns `layout` and nothing else that moves — layout animates by
+ * writing transforms, so anything artistic on the same element fights it for
+ * the same matrix. The inner one owns the pose. Membership changes (the wheel
+ * turning) are the outer's job; where a row sits on the curve is the inner's.
+ */
+function WheelRow({
+  d,
+  side,
+  reduced,
+  children,
+}: {
+  d: number;
+  side: Side;
+  reduced: boolean | null;
+  children: ReactNode;
+}) {
+  // Nearest the seat leads, so a turn resolves outward instead of arriving all
+  // at once.
+  const delay = Math.min(0.14, (d - 1) * 0.022);
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, filter: "blur(3px)" }}
+      transition={{ ...S_WHEEL, delay }}
+    >
+      <motion.div
+        initial={atSeat(side, reduced)}
+        animate={pose(d, side, reduced)}
+        transition={{ ...S_WHEEL, delay }}
+      >
+        {children}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/**
+ * The seat itself. Turning the wheel forward brings the next block up from
+ * below and rolls the old one off the top; turning it back does the reverse.
+ * `custom` carries the direction, which is the only way an exiting card can
+ * know which way to leave — by then its own props are a render out of date.
+ */
+const SEAT = {
+  enter: (dir: number) => ({
+    opacity: 0,
+    y: dir >= 0 ? 38 : -38,
+    rotateX: dir >= 0 ? -20 : 20,
+    scale: 0.94,
+  }),
+  seat: { opacity: 1, y: 0, rotateX: 0, scale: 1 },
+  leave: (dir: number) => ({
+    opacity: 0,
+    y: dir >= 0 ? -32 : 32,
+    rotateX: dir >= 0 ? 18 : -18,
+    scale: 0.94,
+  }),
+};
+
 /* ---------------------------------------------------------------- masthead */
 
 function Masthead({
@@ -127,8 +269,27 @@ function PastLine({ b }: { b: DayBlock }) {
   );
 }
 
-function Past({ blocks }: { blocks: DayBlock[] }) {
-  if (blocks.length === 0) return null;
+function Past({
+  blocks,
+  reduced,
+}: {
+  blocks: DayBlock[];
+  reduced: boolean | null;
+}) {
+  if (blocks.length === 0) {
+    /*
+      The top of the wheel, with nothing on it. It happens before the day
+      starts and whenever you turn the wheel back to the first block, and an
+      unexplained void that size reads as a fault rather than as an end. One
+      line, sitting against the seat, says which it is.
+    */
+    return (
+      <motion.div layout="position" className="px-5">
+        <p className="mono-xs text-ink-4">the day starts here</p>
+        <div className="mt-2 h-px w-6 bg-line-mid" />
+      </motion.div>
+    );
+  }
 
   /*
     Every block the day has already been through, stacked, each keeping its
@@ -136,31 +297,55 @@ function Past({ blocks }: { blocks: DayBlock[] }) {
     labels — which saved height but turned the morning into a caption you
     cannot read a time off.
 
-    The rail is bottom-aligned inside a fixed region, so a long day overflows
-    at the top. That is why the container carries a fade rather than a hard
-    edge: the oldest lines dissolve instead of being sliced, which reads as
-    depth rather than as a clipping fault.
+    Distance is measured from the seat, so the newest row — the one that just
+    left the card — is 1, and the day recedes upward from there. The rail is
+    bottom-aligned inside a fixed region, so a long day overflows at the top.
+    That is why the container carries a fade rather than a hard edge: the
+    oldest lines dissolve instead of being sliced, which reads as depth rather
+    than as a clipping fault, and now agrees with the curve they sit on.
   */
+  const n = blocks.length;
   return (
     <motion.div layout="position" className="px-5">
-      {blocks.map((b, i) => (
-        <motion.div
-          key={b.index}
-          initial={{ opacity: 0, x: -6 }}
-          animate={{ opacity: 1, x: 0 }}
-          // Stagger only the last few. Twelve rows each waiting on the one
-          // before it makes the morning arrive half a second late.
-          transition={{
-            type: "spring",
-            stiffness: 320,
-            damping: 30,
-            delay: 0.06 + Math.max(0, i - (blocks.length - 4)) * 0.04,
-          }}
-        >
-          <PastLine b={b} />
-        </motion.div>
-      ))}
+      <AnimatePresence mode="popLayout">
+        {blocks.map((b, i) => (
+          <WheelRow key={b.index} d={n - i} side={-1} reduced={reduced}>
+            <PastLine b={b} />
+          </WheelRow>
+        ))}
+      </AnimatePresence>
       <div className="mt-2 h-px w-6 bg-line-mid" />
+    </motion.div>
+  );
+}
+
+/**
+ * Blocks that have already ended but sit *after* the seat on the wheel.
+ *
+ * They only exist once you turn the wheel back: recall Wake at 22:00 and the
+ * whole rest of the day is behind you in time yet below you on the drum. Their
+ * phase decides how they read — a finished block is a finished block — and
+ * their position decides where they sit. Conflating the two is what made the
+ * first pass of this feel wrong: recalling the morning left the evening piled
+ * up above the seat, so nothing appeared to turn at all.
+ */
+function Stale({
+  blocks,
+  reduced,
+}: {
+  blocks: DayBlock[];
+  reduced: boolean | null;
+}) {
+  if (blocks.length === 0) return null;
+  return (
+    <motion.div layout="position" className="px-5">
+      <AnimatePresence mode="popLayout">
+        {blocks.map((b, i) => (
+          <WheelRow key={b.index} d={i + 1} side={1} reduced={reduced}>
+            <PastLine b={b} />
+          </WheelRow>
+        ))}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -184,10 +369,15 @@ function OpenGap({ minutes }: { minutes: number }) {
 function Upcoming({
   blocks,
   prevEndMin,
+  reduced,
+  dOffset = 0,
 }: {
   blocks: DayBlock[];
   /** End of whatever precedes this list, so the first gap is measurable. */
   prevEndMin: number | null;
+  reduced: boolean | null;
+  /** Rows already standing between the seat and this list, on the same curve. */
+  dOffset?: number;
 }) {
   if (blocks.length === 0) return null;
   const [next, ...rest] = blocks;
@@ -203,28 +393,31 @@ function Upcoming({
   return (
     <motion.div layout="position" className="px-5">
       <div className="h-px w-6 bg-line-mid" />
-      {leadGap >= OPEN_MIN ? <OpenGap minutes={leadGap} /> : null}
-      <motion.div
-        layout
-        transition={S_PAGE}
-        className="flex items-center gap-2.5"
-        style={{ height: upcomingHeight(next.untilStart) * 0.52 }}
-      >
-        <span className="mono-sm w-[42px] shrink-0 tabular-nums text-ink-3">
-          {next.block.start}
-        </span>
-        <motion.span
-          className="origin-left truncate font-light tracking-[-0.02em] text-ink-2"
-          // Authored at 26px and scaled down: ~14px of travel as it approaches,
-          // which is actually visible, unlike the 7px the first pass produced.
-          style={{ fontSize: 26, scale: 0.55 + 0.45 * p, opacity: 0.45 + 0.55 * p }}
+      <AnimatePresence mode="popLayout">
+      <WheelRow key={next.index} d={dOffset + 1} side={1} reduced={reduced}>
+        {leadGap >= OPEN_MIN ? <OpenGap minutes={leadGap} /> : null}
+        <motion.div
+          layout
+          transition={S_PAGE}
+          className="flex items-center gap-2.5"
+          style={{ height: upcomingHeight(next.untilStart) * 0.52 }}
         >
-          {next.block.label}
-        </motion.span>
-        <span className="mono-sm ml-auto shrink-0 tabular-nums text-ink-3">
-          {formatDuration(next.untilStart)}
-        </span>
-      </motion.div>
+          <span className="mono-sm w-[42px] shrink-0 tabular-nums text-ink-3">
+            {next.block.start}
+          </span>
+          <motion.span
+            className="origin-left truncate font-light tracking-[-0.02em] text-ink-2"
+            // Authored at 26px and scaled down: ~14px of travel as it approaches,
+            // which is actually visible, unlike the 7px the first pass produced.
+            style={{ fontSize: 26, scale: 0.55 + 0.45 * p, opacity: 0.45 + 0.55 * p }}
+          >
+            {next.block.label}
+          </motion.span>
+          <span className="mono-sm ml-auto shrink-0 tabular-nums text-ink-3">
+            {formatDuration(next.untilStart)}
+          </span>
+        </motion.div>
+      </WheelRow>
 
       {soon.map((b, i) => {
         const prev = i === 0 ? next : soon[i - 1];
@@ -234,7 +427,7 @@ function Upcoming({
         // type size. This is what `lib/layout.ts` exists for.
         const q = approach(b.untilStart);
         return (
-          <div key={b.index}>
+          <WheelRow key={b.index} d={dOffset + i + 2} side={1} reduced={reduced}>
             {gap >= OPEN_MIN ? <OpenGap minutes={gap} /> : null}
             <motion.div
               layout
@@ -256,15 +449,18 @@ function Upcoming({
                 {b.block.label}
               </motion.span>
             </motion.div>
-          </div>
+          </WheelRow>
         );
       })}
 
       {after.length > 0 ? (
-        <p className="mono-xs mt-2 truncate text-ink-4">
-          {after.map((b) => b.block.label).join(" · ")}
-        </p>
+        <WheelRow key="rim" d={dOffset + soon.length + 2} side={1} reduced={reduced}>
+          <p className="mono-xs mt-2 truncate text-ink-4">
+            {after.map((b) => b.block.label).join(" · ")}
+          </p>
+        </WheelRow>
       ) : null}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -318,12 +514,15 @@ function Register({
   day,
   log,
   habits,
+  focusIndex,
   onRecall,
   onFloating,
 }: {
   day: DayModel;
   log: DailyLog | null;
   habits: HabitDef[];
+  /** The block currently in the seat, so the register can show where it is. */
+  focusIndex: number;
   onRecall: (blockIndex: number) => void;
   /** A habit with no block of its own — committed in a sheet instead. */
   onFloating: (id: HabitKey) => void;
@@ -337,6 +536,12 @@ function Register({
     }
   }
   const floating = new Set(day.floating);
+  /*
+    Where the wheel is parked. One marker, not a flag per letter — two habits
+    can share a block, and two elements sharing a layoutId is how you get
+    Motion animating a marker to a place it is also leaving.
+  */
+  const seatedId = habits.find((h) => blockOf.get(h.id) === focusIndex)?.id;
 
   /*
     Scrub. Press anywhere on the register and slide sideways: the glyph nearest
@@ -467,11 +672,23 @@ function Register({
                 if (scrubbed.current) return;
                 pick(k);
               }}
-              className="flex min-h-11 items-center px-1"
+              className="relative flex min-h-11 items-center px-1"
             >
+              {/* The marker is one element that moves between letters rather
+                  than one per letter that fades — a shared layoutId is what
+                  makes it slide under the finger instead of blinking across. */}
+              {k === seatedId ? (
+                <motion.span
+                  layoutId="register-seat"
+                  aria-hidden
+                  className="absolute inset-y-[9px] -inset-x-[3px] rounded-sm border border-line-mid bg-surface-2"
+                  transition={S_WHEEL}
+                />
+              ) : null}
               <HabitGlyph
                 habit={k}
                 code={h.code}
+                seated={k === seatedId}
                 state={
                   !scheduled
                     ? "unscheduled"
@@ -503,6 +720,8 @@ function FocusBlock({
   onRecoil,
   recalled,
   onReturn,
+  dir,
+  reduced,
 }: {
   b: DayBlock;
   day: DayModel;
@@ -515,6 +734,9 @@ function FocusBlock({
   /** True when this block was summoned rather than being the live one. */
   recalled: boolean;
   onReturn: () => void;
+  /** +1 when the wheel last turned toward later blocks, -1 toward earlier. */
+  dir: number;
+  reduced: boolean | null;
 }) {
   const live = day.currentIndex === b.index;
   const held = day.graceIndex === b.index;
@@ -533,12 +755,37 @@ function FocusBlock({
 
   return (
     <motion.section
-      layout
+      /*
+        No `layout` here any more. The seat animates on a variant that moves it
+        in y and turns it in x, and layout animation drives the very same
+        matrix — the two would take turns writing it and the card would judder
+        on every detent. Popping out of flow is enough: the next card takes the
+        seat the instant this one is released.
+      */
+      variants={SEAT}
+      custom={dir}
+      initial="enter"
+      animate="seat"
+      exit="leave"
+      transition={S_SEAT}
+      style={reduced ? undefined : { transformPerspective: 1100 }}
       // shrink-0: the card owns a latch and a field, and a clipped commit
       // control is worse than a clipped context row. The rails absorb the
       // squeeze instead.
       className="relative mx-5 shrink-0 overflow-hidden rounded-lg border border-line-soft bg-surface py-5 pr-4 pl-9"
     >
+      {/* The detent. A block landing in the seat lights its own rim for half a
+          second — the visual half of the tick the haptic already fires, and
+          the thing that makes a scrub read as notched rather than continuous. */}
+      {reduced ? null : (
+        <motion.span
+          aria-hidden
+          initial={{ opacity: 0.55 }}
+          animate={{ opacity: 0 }}
+          transition={{ duration: 0.55, ease: "easeOut" }}
+          className="pointer-events-none absolute inset-0 rounded-lg border border-accent/70"
+        />
+      )}
       {/*
         The time rail.
 
@@ -727,6 +974,10 @@ export function DayScreen() {
 
   const recoil = useMotionValue(0);
   const pull = useMotionValue(0);
+  /** The housing's own tip, kicked each time the wheel lands on a new seat. */
+  const drum = useMotionValue(0);
+  /** Which way the wheel last turned. Drives every entrance and exit on it. */
+  const [dir, setDir] = useState(0);
   const loadedFor = useRef<string>("");
 
   const [seconds, setSeconds] = useState("--:--:--");
@@ -849,14 +1100,50 @@ export function DayScreen() {
     day.graceIndex < 0 &&
     !!focus &&
     focus.phase === "upcoming";
+  /*
+    Every turn of the wheel tips the whole housing a few degrees against the
+    direction of travel and lets it fall back. It is small — five degrees, gone
+    in half a second — and it is what stops a scrub from reading as a list
+    swapping its contents: the column has mass, and you just moved it.
+  */
+  const lastSeat = useRef(focusIndex);
+  useEffect(() => {
+    if (focusIndex === lastSeat.current) return;
+    const d = focusIndex > lastSeat.current ? 1 : -1;
+    lastSeat.current = focusIndex;
+    setDir(d);
+    if (reduced) return;
+    // Keyframes must run as a tween — see fireRecoil for why a spring across
+    // them plays nothing at all.
+    animate(drum, [-d * 4.5, 0], { duration: 0.62, ease: [0.16, 1, 0.3, 1] });
+  }, [focusIndex, drum, reduced]);
+
   const lastPastEnd =
     [...day.blocks].reverse().find((b) => b.phase === "past")?.endMin ?? null;
-  const past = day.blocks.filter(
-    (b) => b.phase === "past" && b.index !== focusIndex,
-  );
-  const upcoming = day.blocks.filter(
-    (b) => b.phase === "upcoming" && b.index !== focusIndex,
-  );
+
+  /*
+    The column is split by where a block sits relative to the seat, not by
+    whether it has happened. Those two agree all day — the seat is the live
+    block, so everything behind it is past and everything ahead is upcoming —
+    and they part company the moment you turn the wheel back to fill something
+    in. Splitting by phase there left the evening stacked above a recalled
+    morning: the seat changed and the column did not move, which is the exact
+    opposite of a wheel.
+  */
+  const above = day.blocks.filter((b) => b.index < focusIndex);
+  const below = day.blocks.filter((b) => b.index > focusIndex);
+  // Phases run in order, so below is a run of finished blocks followed by a
+  // run of ones still to come.
+  const stale = below.filter((b) => b.phase === "past");
+  const ahead = below.filter((b) => b.phase !== "past");
+  // The first gap ahead is measured from whatever actually precedes it on the
+  // wheel — otherwise recalling Wake reports sixteen hours open before bed.
+  const beforeAhead =
+    stale.length > 0
+      ? stale[stale.length - 1].endMin
+      : focus && showFocus
+        ? focus.endMin
+        : null;
 
   if (!clock.ready) return <main className="min-h-dvh" aria-hidden />;
 
@@ -925,52 +1212,103 @@ export function DayScreen() {
                     the week strip on top of SPAN 1115 and the register glyphs
                     on top of the evening line. Clipped, the same squeeze just
                     shows fewer rows. */}
+                {/*
+                  The drum. Everything between the masthead and the register
+                  rides one surface: the day behind you curving away above, the
+                  seat facing you, the day ahead curving away below.
+
+                  The perspective lives on the two rails rather than here, with
+                  its vanishing point pinned to the edge each rail shares with
+                  the seat. One perspective for the whole column would need to
+                  know where the seat sits in pixels, and the seat moves — the
+                  card is a different height for a block that carries a note
+                  than for one that carries a latch.
+                */}
                 <motion.div
-                  {...rise(1, reduced)}
-                  className="fade-top flex min-h-0 flex-[1.7] flex-col justify-end gap-3 overflow-hidden pb-1"
+                  style={
+                    reduced
+                      ? undefined
+                      : { rotateX: drum, transformPerspective: 1400 }
+                  }
+                  className="flex min-h-0 flex-1 flex-col"
                 >
-                  <Past blocks={past} />
-                </motion.div>
+                  <motion.div
+                    {...rise(1, reduced)}
+                    style={
+                      reduced
+                        ? undefined
+                        : { perspective: 1000, perspectiveOrigin: "50% 100%" }
+                    }
+                    className="fade-top flex min-h-0 flex-[1.7] flex-col justify-end gap-3 overflow-hidden pb-1"
+                  >
+                    <Past blocks={above} reduced={reduced} />
+                  </motion.div>
 
-                {inDeadAir && focus ? (
-                  <GapNow
-                    from={lastPastEnd}
-                    to={focus.startMin}
-                    label={focus.block.label}
-                    nowMV={clock.nowMV}
-                  />
-                ) : null}
+                  {inDeadAir && focus ? (
+                    <GapNow
+                      from={lastPastEnd}
+                      to={focus.startMin}
+                      label={focus.block.label}
+                      nowMV={clock.nowMV}
+                    />
+                  ) : null}
 
-                {showFocus ? (
-                  <FocusBlock
-                    b={focus}
-                    day={day}
-                    log={log}
-                    habitById={habitById}
-                    nowMV={clock.nowMV}
-                    onHabit={setHabit}
-                    onPatch={patch}
-                    onRecoil={fireRecoil}
-                    recalled={recalled}
-                    onReturn={() => setSelected(null)}
-                  />
-                ) : (
-                  <section className="mx-5 shrink-0 rounded-lg border border-line-soft bg-surface px-5 py-10 text-center">
-                    <h1 className="text-[32px] font-light leading-none tracking-[-0.03em] text-ink">
-                      Day closed
-                    </h1>
-                    <p className="mono-xs mt-3 text-ink-3">next up 04:45</p>
-                  </section>
-                )}
+                  {/* initial={false}: the first card of the session is already
+                      where it belongs, and flying it in would say the wheel
+                      turned when nothing had. */}
+                  <AnimatePresence mode="popLayout" custom={dir} initial={false}>
+                    {showFocus ? (
+                      <FocusBlock
+                        key={focus.index}
+                        b={focus}
+                        day={day}
+                        log={log}
+                        habitById={habitById}
+                        nowMV={clock.nowMV}
+                        onHabit={setHabit}
+                        onPatch={patch}
+                        onRecoil={fireRecoil}
+                        recalled={recalled}
+                        onReturn={() => setSelected(null)}
+                        dir={dir}
+                        reduced={reduced}
+                      />
+                    ) : (
+                      <motion.section
+                        key="closed"
+                        variants={SEAT}
+                        custom={dir}
+                        initial="enter"
+                        animate="seat"
+                        exit="leave"
+                        transition={S_SEAT}
+                        className="mx-5 shrink-0 rounded-lg border border-line-soft bg-surface px-5 py-10 text-center"
+                      >
+                        <h1 className="text-[32px] font-light leading-none tracking-[-0.03em] text-ink">
+                          Day closed
+                        </h1>
+                        <p className="mono-xs mt-3 text-ink-3">next up 04:45</p>
+                      </motion.section>
+                    )}
+                  </AnimatePresence>
 
-                <motion.div
-                  {...rise(3, reduced)}
-                  className="flex min-h-0 flex-1 flex-col justify-start gap-3 overflow-hidden pt-3"
-                >
-                  <Upcoming
-                    blocks={upcoming}
-                    prevEndMin={showFocus && focus ? focus.endMin : null}
-                  />
+                  <motion.div
+                    {...rise(3, reduced)}
+                    style={
+                      reduced
+                        ? undefined
+                        : { perspective: 1000, perspectiveOrigin: "50% 0%" }
+                    }
+                    className="fade-bottom flex min-h-0 flex-1 flex-col justify-start gap-3 overflow-hidden pt-3"
+                  >
+                    <Stale blocks={stale} reduced={reduced} />
+                    <Upcoming
+                      blocks={ahead}
+                      prevEndMin={beforeAhead}
+                      reduced={reduced}
+                      dOffset={stale.length}
+                    />
+                  </motion.div>
                 </motion.div>
 
                 {/* The register is the one thing that must never be squeezed
@@ -984,6 +1322,7 @@ export function DayScreen() {
                     day={day}
                     log={log}
                     habits={habits}
+                    focusIndex={focusIndex}
                     onRecall={setSelected}
                     onFloating={setFloatingId}
                   />

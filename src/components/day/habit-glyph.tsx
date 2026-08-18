@@ -39,20 +39,28 @@ export function HabitGlyph({
   habit,
   code,
   state,
+  seated = false,
 }: {
   habit: HabitKey;
   /** Register letter, from the habit's own definition. */
   code: string;
   state: GlyphState;
+  /** Its block is the one in the seat — the letter the wheel is parked on. */
+  seated?: boolean;
 }) {
   return (
     <motion.span
       layoutId={`habit-${habit}`}
       transition={{ type: "spring", stiffness: 320, damping: 32, mass: 0.9 }}
-      className="flex shrink-0 flex-col items-center gap-[3px]"
+      className="relative flex shrink-0 flex-col items-center gap-[3px]"
     >
       <span
-        className={`font-mono text-[12px] leading-none tracking-[0.04em] ${LETTER[state]}`}
+        // The seated letter comes up to full ink whatever its state, because
+        // "where the wheel is" has to beat "how this habit is doing" for the
+        // half second you are looking for it.
+        className={`font-mono text-[12px] leading-none tracking-[0.04em] ${
+          seated ? "text-ink" : LETTER[state]
+        }`}
       >
         {code}
       </span>

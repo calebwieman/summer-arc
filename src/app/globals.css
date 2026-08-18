@@ -359,10 +359,18 @@
   /*
     Bottom-aligned rails overflow at the top. A hard edge slices the oldest
     line in half and reads as a rendering fault; fading it reads as distance.
+    The rail below the seat has the same problem at its own far edge — turn
+    the wheel back to the morning and the whole rest of the day queues up
+    below it — so it gets the mirror of the same mask.
   */
   .fade-top {
     -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
     mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  }
+
+  .fade-bottom {
+    -webkit-mask-image: linear-gradient(to top, transparent 0, #000 28px);
+    mask-image: linear-gradient(to top, transparent 0, #000 28px);
   }
 
   /* Hard-bordered panel. Depth is displacement + zero-blur shadow. */
