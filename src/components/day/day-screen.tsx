@@ -309,14 +309,12 @@ function Register({
   day,
   log,
   habits,
-  onOpen,
   onRecall,
   onFloating,
 }: {
   day: DayModel;
   log: DailyLog | null;
   habits: HabitDef[];
-  onOpen: () => void;
   onRecall: (blockIndex: number) => void;
   /** A habit with no block of its own — committed in a sheet instead. */
   onFloating: (id: HabitKey) => void;
@@ -335,8 +333,7 @@ function Register({
     <div className="flex items-center gap-3 px-5">
       {/* Scrolls rather than shrinks: the register is a fixed row in a fixed
           column, and once habits are user-defined there is no upper bound on
-          how many glyphs land here. Five fit; twelve would have squeezed the
-          "pull for record" affordance off the edge. */}
+          how many glyphs land here. */}
       <div className="-mx-1 flex touch-pan-x gap-1.5 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {habits.map((h) => {
           const k = h.id;
@@ -383,15 +380,6 @@ function Register({
           );
         })}
       </div>
-      {/* The pull is primary; this is the discoverable equivalent, and the
-          only path available to a keyboard or assistive-tech user. */}
-      <button
-        type="button"
-        onClick={onOpen}
-        className="mono-xs ml-auto min-h-11 text-ink-3 hover:text-ink-2"
-      >
-        pull for record
-      </button>
     </div>
   );
 }
@@ -611,6 +599,25 @@ export function DayScreen() {
 
   const deeper = step(mode, 1);
   const shallower = step(mode, -1);
+
+  /*
+    Arrow keys walk the same stack. The register used to carry a "pull for
+    record" button, which was also the only route through for a keyboard or
+    assistive-tech user; removing the visible hint should not remove the
+    capability with it.
+  */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      if (e.key === "ArrowDown" || e.key === "PageDown") setMode(deeper);
+      else if (e.key === "ArrowUp" || e.key === "PageUp") setMode(shallower);
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deeper, shallower]);
 
   const recoil = useMotionValue(0);
   const pull = useMotionValue(0);
@@ -871,7 +878,6 @@ export function DayScreen() {
                     day={day}
                     log={log}
                     habits={habits}
-                    onOpen={() => setMode("record")}
                     onRecall={setSelected}
                     onFloating={setFloatingId}
                   />

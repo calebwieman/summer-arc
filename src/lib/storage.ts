@@ -158,15 +158,28 @@ export function lastTrainingNote(
 }
 
 export interface BackupBundle {
-  schema: 3;
+  /**
+   * 4 adds `habits`. A schema-3 file carries only days — restore it onto a
+   * fresh device and every habit you had defined is missing, so its entries
+   * have nothing to render them and simply vanish. Reading 3 still works; it
+   * just cannot bring the registry back, because it never held it.
+   */
+  schema: 3 | 4;
   exportedAt: string;
+  /** The registry, retired habits included, so history stays readable. */
+  habits?: HabitDef[];
   daily: Record<string, DailyLog>;
 }
 
 export function exportBackup(): BackupBundle {
   const daily: Record<string, DailyLog> = {};
   for (const log of getAllDailyLogs()) daily[log.date] = log;
-  return { schema: 3, exportedAt: new Date().toISOString(), daily };
+  return {
+    schema: 4,
+    exportedAt: new Date().toISOString(),
+    habits: getAllHabits(),
+    daily,
+  };
 }
 
 export function importBackup(
@@ -199,6 +212,18 @@ export function importBackup(
     if (fresh.length > 0) {
       saveHabits([...existing, ...fresh]);
       habitsAdded.push(...fresh.map((h) => h.label));
+    }
+  } else if (!legacy && Array.isArray(b.habits)) {
+    // A schema-4 backup of this app's own. Definitions already here win —
+    // restoring must never overwrite how you have since tuned a habit — but
+    // anything the file knows about and this device does not comes back, or
+    // its days would restore with nothing able to display them.
+    const fresh = (b.habits as HabitDef[]).filter(
+      (h) => h && typeof h.id === "string" && !known.has(h.id),
+    );
+    if (fresh.length > 0) {
+      saveHabits([...existing, ...fresh]);
+      habitsAdded.push(...fresh.map((h) => h.label ?? h.id));
     }
   }
 
