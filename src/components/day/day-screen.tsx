@@ -893,20 +893,28 @@ export function DayScreen() {
                 transition={S_PAGE}
                 className="app-top-scroll flex h-full flex-col overflow-hidden px-5"
               >
-                {/* A real heading, focused on entry: the morph replaces the
-                    whole surface, and without this a screen reader is left on a
-                    control that no longer exists and announces nothing. */}
-                <div className="pb-2 text-center">
-                  <h1
-                    ref={recordHeadingRef}
-                    tabIndex={-1}
-                    className="kicker outline-none"
-                  >
-                    The record
-                  </h1>
-                  <p className="meta mt-1.5">last 14 days · never miss twice</p>
+                {/* my-auto, not justify-center: with auto margins the block
+                    centres while there is room to spare and falls back to
+                    top-aligned when there is not. Centring a flex column whose
+                    content overflows clips it at BOTH ends, which would eat the
+                    heading on a short screen — and this page cannot scroll to
+                    get it back. */}
+                <div className="my-auto">
+                  {/* A real heading, focused on entry: the morph replaces the
+                      whole surface, and without this a screen reader is left on
+                      a control that no longer exists and announces nothing. */}
+                  <div className="pb-2 text-center">
+                    <h1
+                      ref={recordHeadingRef}
+                      tabIndex={-1}
+                      className="kicker outline-none"
+                    >
+                      The record
+                    </h1>
+                    <p className="meta mt-1.5">last 14 days · never miss twice</p>
+                  </div>
+                  <FourteenDay series={series} />
                 </div>
-                <FourteenDay series={series} />
               </motion.div>
             ) : (
               <motion.div

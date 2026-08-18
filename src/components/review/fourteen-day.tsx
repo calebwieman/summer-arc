@@ -174,7 +174,7 @@ export function FourteenDay({ series }: { series: HabitSeries[] }) {
   const compact = series.length > 5;
 
   return (
-    <div className="min-h-0 flex-1 overflow-hidden">
+    <div className="min-h-0 overflow-hidden">
       <div className="divide-y divide-line-soft/60">
         {series.map((s, i) => (
           <Row key={s.key} s={s} index={i} compact={compact} />
