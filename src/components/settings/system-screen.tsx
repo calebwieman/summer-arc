@@ -2,10 +2,9 @@
 
 import { motion } from "motion/react";
 import { Archive } from "@/components/review/archive";
-import { Sheet } from "@/components/ui/sheet";
-import { HabitEditor } from "./habit-editor";
 import { useTheme, type ThemePref } from "@/components/theme/theme-provider";
 import { haptic } from "@/lib/haptics";
+import { TICK } from "@/lib/motion";
 
 const OPTIONS: { value: ThemePref; label: string }[] = [
   { value: "system", label: "System" },
@@ -13,13 +12,12 @@ const OPTIONS: { value: ThemePref; label: string }[] = [
   { value: "dark", label: "Dark" },
 ];
 
-function ThemeChoice() {
+function Appearance() {
   const { pref, setTheme, ready } = useTheme();
-
   return (
-    <section className="text-center">
+    <section>
       <h3 className="kicker">Appearance</h3>
-      <div className="mt-4 flex gap-2">
+      <div className="mt-3 flex gap-2">
         {OPTIONS.map((o) => {
           const active = ready && pref === o.value;
           return (
@@ -32,7 +30,7 @@ function ThemeChoice() {
                 setTheme(o.value);
               }}
               whileTap={{ scale: 0.97 }}
-              transition={{ type: "spring", stiffness: 520, damping: 32 }}
+              transition={TICK}
               className={`min-h-11 flex-1 rounded-sm border font-mono text-[10px] uppercase tracking-[0.16em] transition-colors ${
                 active
                   ? "border-accent bg-ink/[0.10] text-ink"
@@ -49,29 +47,23 @@ function ThemeChoice() {
 }
 
 /**
- * Everything that is configuration rather than today. Kept off the day screen
- * entirely — it is opened perhaps twice a semester — and off the record, which
- * is for reading.
+ * The machine behind the instrument: how it looks, and how it survives.
+ *
+ * Two swipes left from the day, and deliberately the furthest thing from it —
+ * this is opened perhaps twice a semester, and everything on it is either a
+ * one-off choice or an insurance policy.
  */
-export function SettingsSheet({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+export function SystemScreen() {
   return (
-    <Sheet open={open} onClose={onClose} title="Settings" tall>
-      <div className="space-y-8">
-        <HabitEditor />
-        <ThemeChoice />
-        <Archive />
-        {/* Which build is actually running, readable from the phone. */}
-        <p className="mono-xs text-center text-ink-4">
-          build {process.env.NEXT_PUBLIC_BUILD_SHA} ·{" "}
-          {process.env.NEXT_PUBLIC_BUILD_AT} UTC
-        </p>
-      </div>
-    </Sheet>
+    <div className="flex h-full min-h-0 flex-col gap-7">
+      <Appearance />
+      <Archive />
+      {/* Which build is actually running, readable from the phone. It is the
+          only way to tell whether a deploy has landed. */}
+      <p className="mono-xs mt-auto shrink-0 text-center text-ink-4">
+        build {process.env.NEXT_PUBLIC_BUILD_SHA} ·{" "}
+        {process.env.NEXT_PUBLIC_BUILD_AT} UTC
+      </p>
+    </div>
   );
 }

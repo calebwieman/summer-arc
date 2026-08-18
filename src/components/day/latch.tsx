@@ -196,6 +196,8 @@ export function Latch({
         // operated by assistive technology at all.
         if (e.detail === 0) commit(!checked);
       }}
+      // The carriage drags sideways; the surface grid must not arm over it.
+      data-deck="off"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={clearHold}

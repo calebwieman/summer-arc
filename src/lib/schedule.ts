@@ -209,6 +209,31 @@ export function blockAt(date: string, time: string): Block | undefined {
 }
 
 /**
+ * The distinct training sessions in the week, in the order they first occur.
+ *
+ * Structurally fixed by the template rather than by anything the user can
+ * edit, which is what lets a page built on it have a constant height: five
+ * rows today, and five rows until this file changes.
+ */
+export function trainingLabels(): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const day of [1, 2, 3, 4, 5, 6, 0] as Weekday[]) {
+    for (const b of WEEKLY_SCHEDULE[day]) {
+      if (b.kind !== "training" || seen.has(b.label)) continue;
+      seen.add(b.label);
+      out.push(b.label);
+    }
+  }
+  return out;
+}
+
+/** The training block scheduled on a date, if any. */
+export function trainingBlockOn(date: string): Block | undefined {
+  return blocksForDate(date).find((b) => b.kind === "training");
+}
+
+/**
  * Every distinct block label across the week, in first-appearance order.
  * The habit editor offers these as anchor targets — a habit anchored to a
  * label is scheduled exactly on the days that label appears, which is how

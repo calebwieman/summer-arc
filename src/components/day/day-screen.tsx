@@ -12,6 +12,7 @@ import {
   useTransform,
 } from "motion/react";
 import { useClock } from "@/hooks/use-clock";
+import { useDeck, COL_COMMIT } from "@/hooks/use-deck";
 import { buildDay, type DayBlock, type DayModel } from "@/lib/day";
 import { approach, upcomingHeight } from "@/lib/layout";
 import { buildHabitSeries } from "@/lib/series";
@@ -26,8 +27,12 @@ import type { DailyLog, HabitKey } from "@/lib/types";
 import { FourteenDay } from "@/components/review/fourteen-day";
 import { WeekLoad } from "@/components/review/week-load";
 import { HistoryScreen } from "@/components/history/history-screen";
+import { CalendarScreen } from "@/components/calendar/calendar-screen";
+import { SessionsScreen } from "@/components/sessions/sessions-screen";
+import { SessionThread } from "@/components/sessions/session-thread";
+import { HabitsScreen } from "@/components/settings/habits-screen";
+import { SystemScreen } from "@/components/settings/system-screen";
 import { DaySheet } from "@/components/history/day-sheet";
-import { SettingsSheet } from "@/components/settings/settings-sheet";
 import { FloatingHabitSheet } from "./floating-habit-sheet";
 import { WeekStrip, buildWeek, type WeekDay } from "./week-strip";
 import { Settings2 } from "lucide-react";
@@ -53,12 +58,24 @@ const PULL_COMMIT = 72;
  * routes. Each end of the stack is its own neighbour, which is what makes the
  * top and bottom feel like ends.
  */
-const STACK = ["day", "record", "history"] as const;
-type Mode = (typeof STACK)[number];
+const GRID = [
+  ["calendar", "day", "habits", "system"],
+  ["sessions", "record"],
+  ["history"],
+] as const;
 
-function step(mode: Mode, delta: 1 | -1): Mode {
-  const i = STACK.indexOf(mode);
-  return STACK[Math.min(STACK.length - 1, Math.max(0, i + delta))];
+type Page = (typeof GRID)[number][number];
+
+/** Where each row sits when you arrive on it from above or below. */
+const HOME = [1, 1, 0];
+
+function clamp(n: number, hi: number) {
+  return Math.min(hi, Math.max(0, n));
+}
+
+function pageAt(row: number, col: number): Page {
+  const r = GRID[clamp(row, GRID.length - 1)];
+  return r[clamp(col, r.length - 1)];
 }
 /** Snapping the surface back to rest when a pull is released short. */
 const S_SNAP = { type: "spring", stiffness: 700, damping: 44, mass: 0.8 } as const;
@@ -79,13 +96,18 @@ const S_SNAP = { type: "spring", stiffness: 700, damping: 44, mass: 0.8 } as con
  * at half strength before the incoming one is legible. That is the mechanical
  * answer to the legibility objection rather than a promise about taste.
  */
+interface Move {
+  axis: "x" | "y";
+  dir: number;
+}
+
 const SURF = {
-  enter: (dir: number) => ({
-    y: dir >= 0 ? "16%" : "-16%",
-    opacity: 0,
-    scale: 1,
-  }),
+  enter: (m: Move) =>
+    m.axis === "x"
+      ? { x: m.dir >= 0 ? "24%" : "-24%", y: 0, opacity: 0, scale: 1 }
+      : { y: m.dir >= 0 ? "16%" : "-16%", x: 0, opacity: 0, scale: 1 },
   here: {
+    x: 0,
     y: 0,
     opacity: 1,
     scale: 1,
@@ -93,9 +115,10 @@ const SURF = {
     // starts becoming legible, so the movement is what you read first.
     transition: { ...SURFACE, opacity: { duration: 0.26, delay: 0.1 } },
   },
-  gone: (dir: number) => ({
-    scale: dir >= 0 ? 0.94 : 1.015,
-    y: dir >= 0 ? -14 : 14,
+  gone: (m: Move) => ({
+    scale: m.axis === "x" ? 0.96 : m.dir >= 0 ? 0.94 : 1.015,
+    x: m.axis === "x" ? (m.dir >= 0 ? -20 : 20) : 0,
+    y: m.axis === "x" ? 0 : m.dir >= 0 ? -14 : 14,
     opacity: 0,
     // Early and quicker. These surfaces have no background of their own, so
     // an outgoing layer held at half strength is not "behind" the incoming
@@ -107,11 +130,26 @@ const SURF = {
   }),
 };
 
-/** Where a pull is heading, in the words the destination uses for itself. */
-const DESTINATION: Record<Mode, string> = {
+/** One line under each surface's name, saying what it is for. */
+const SUBTITLES: Record<Page, string> = {
+  day: "",
+  record: "last 14 days · never miss twice",
+  history: "tap any day to fill it in",
+  calendar: "tap any day to fill it in",
+  habits: "what the letters stand for",
+  system: "how it looks, and how it survives",
+  sessions: "training, session by session",
+};
+
+/** What each surface calls itself, used wherever a gesture names its target. */
+const TITLES: Record<Page, string> = {
   day: "Today",
   record: "The record",
   history: "History",
+  calendar: "Calendar",
+  habits: "The register",
+  system: "System",
+  sessions: "Sessions",
 };
 
 
@@ -428,7 +466,6 @@ function Masthead({
   tally,
   minutes,
   reduced,
-  onSettings,
 }: {
   day: DayModel;
   /** A fixed time string when the clock is pinned for preview, else null. */
@@ -436,7 +473,6 @@ function Masthead({
   tally: { done: number; total: number };
   minutes: number;
   reduced: boolean | null;
-  onSettings: () => void;
 }) {
   return (
     <header className="flex items-start justify-between gap-3 px-5 pt-1 pb-3">
@@ -471,14 +507,6 @@ function Masthead({
       <div className="flex shrink-0 items-center gap-1">
         {/* The seconds are the proof of life — the now-rail moves too slowly to read. */}
         <Watch pinnedAt={pinnedAt} />
-        <button
-          type="button"
-          aria-label="Settings"
-          onClick={onSettings}
-          className="flex h-11 w-11 items-center justify-center rounded-pill text-ink-3 hover:text-ink"
-        >
-          <Settings2 className="h-4 w-4" />
-        </button>
       </div>
     </header>
   );
@@ -537,7 +565,7 @@ function PastInner({
   */
   const n = blocks.length;
   return (
-    <motion.div layout="position" className="px-5">
+    <motion.div layout="position" className="relative px-5">
       <AnimatePresence mode="popLayout">
         {blocks.map((b, i) => (
           <WheelRow key={b.index} d={n - i} side={-1} reduced={reduced} live={live}>
@@ -571,7 +599,7 @@ function StaleInner({
 }) {
   if (blocks.length === 0) return null;
   return (
-    <motion.div layout="position" className="px-5">
+    <motion.div layout="position" className="relative px-5">
       <AnimatePresence mode="popLayout">
         {blocks.map((b, i) => (
           <WheelRow key={b.index} d={i + 1} side={1} reduced={reduced} live={live}>
@@ -633,7 +661,7 @@ function UpcomingInner({
   const leadGap = prevEndMin == null ? 0 : next.startMin - prevEndMin;
 
   return (
-    <motion.div layout="position" className="px-5">
+    <motion.div layout="position" className="relative px-5">
       <div className="h-px w-6 bg-line-mid" />
       <AnimatePresence mode="popLayout">
       <WheelRow key={next.index} d={dOffset + 1} side={1} reduced={reduced} live={live}>
@@ -861,6 +889,13 @@ function RegisterInner({
         stack swipe still works because Motion drags from pointer events, which
         keep flowing.
       */
+      /*
+        data-deck="off": this row owns horizontal touch, so the surface grid
+        must not arm over it. A DOM-ancestry test rather than a coordinate one,
+        so it survives every future layout change and needs no coordination
+        between the two consumers.
+      */
+      data-deck="off"
       className="flex touch-none items-center justify-center px-5"
       onPointerDown={(e) => {
         // The row cannot reflow mid-gesture, so one read at the top is enough.
@@ -1313,6 +1348,48 @@ function FocusBlock({
 }
 
 
+/**
+ * Every surface except the day.
+ *
+ * They all want the same three things — the status-band clearance, a real
+ * heading that takes focus when the surface arrives, and the entrance the grid
+ * gives them — so they share one shell rather than repeating it. The day is not
+ * one of these because it owns its own masthead.
+ */
+function Surface({
+  page,
+  move,
+  reduced,
+  headingRef,
+  children,
+}: {
+  page: Page;
+  move: Move;
+  reduced: boolean | null;
+  headingRef: React.RefObject<HTMLHeadingElement | null>;
+  children: ReactNode;
+}) {
+  return (
+    <motion.div
+      custom={move}
+      variants={SURF}
+      initial={reduced ? { opacity: 0 } : "enter"}
+      animate={reduced ? { opacity: 1 } : "here"}
+      exit={reduced ? { opacity: 0 } : "gone"}
+      transition={SURFACE}
+      className="app-top-scroll absolute inset-0 flex flex-col overflow-hidden px-5"
+    >
+      <div className="shrink-0 pb-5 text-center">
+        <h1 ref={headingRef} tabIndex={-1} className="kicker outline-none">
+          {TITLES[page]}
+        </h1>
+        <p className="meta mt-1.5">{SUBTITLES[page]}</p>
+      </div>
+      {children}
+    </motion.div>
+  );
+}
+
 /* ------------------------------------------------------------------ screen */
 
 export function DayScreen() {
@@ -1322,51 +1399,91 @@ export function DayScreen() {
   // Lazy initial read: the registry lives in localStorage, and the real UI is
   // gated behind `clock.ready`, so nothing rendered before mount can mismatch.
   const [habits, setHabits] = useState<HabitDef[]>(getHabits);
-  const [mode, setMode] = useState<Mode>("day");
-  /** Which way the stack last moved — deeper (+1) or back toward today (-1). */
-  const [modeDir, setModeDir] = useState(1);
+  /*
+    Where you are on the grid.
+
+    Rows are the surfaces you already had — today, the record, history — and
+    columns are what each of them opens sideways onto. One rule holds the whole
+    map together and is worth stating before the code: **up and down change the
+    instrument and always come home; right is the longer view of this row; left
+    only exists on the day, and goes into the machine behind it.**
+
+    `col` is an absolute index into the row, not an offset, so clamping is the
+    only edge logic there is.
+  */
+  const [row, setRow] = useState(0);
+  const [col, setCol] = useState(HOME[0]);
+  /** How the last move went, so the arriving surface knows where to come from. */
+  const [move, setMove] = useState<Move>({ axis: "y", dir: 1 });
   /** A past day opened for backfill from the history surface. */
   const [pickedDate, setPickedDate] = useState<string | null>(null);
   /** Bumped after any write so history recounts without a full reload. */
   const [dataVersion, setDataVersion] = useState(0);
+  /** A session type whose whole note history is open. */
+  const [thread, setThread] = useState<string | null>(null);
   /** A floating habit being committed in its own sheet. */
   const [floatingId, setFloatingId] = useState<HabitKey | null>(null);
   /** A recalled block index, or null when following the live day. */
   const [selected, setSelected] = useState<number | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const recordHeadingRef = useRef<HTMLHeadingElement>(null);
-  const historyHeadingRef = useRef<HTMLHeadingElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
-  const deeper = step(mode, 1);
-  const shallower = step(mode, -1);
+  const page = pageAt(row, col);
+  const lastCol = GRID[row].length - 1;
+  const rowBelow = clamp(row + 1, GRID.length - 1);
+  const rowAbove = clamp(row - 1, GRID.length - 1);
+  const colRight = clamp(col + 1, lastCol);
+  const colLeft = clamp(col - 1, lastCol);
 
-  const go = useCallback(
-    (next: Mode) => {
-      if (next === mode) return;
-      setModeDir(STACK.indexOf(next) > STACK.indexOf(mode) ? 1 : -1);
-      setMode(next);
+  /*
+    A vertical move always lands on its row's home column.
+
+    That is the invariant that makes the map holdable: there is no diagonal,
+    there is no per-row memory of where you were, and you are never more than
+    one gesture away from a live instrument. It costs one line here and one in
+    the key handler.
+  */
+  const goRow = useCallback(
+    (next: number) => {
+      const r = clamp(next, GRID.length - 1);
+      if (r === row) return;
+      setMove({ axis: "y", dir: r > row ? 1 : -1 });
+      setRow(r);
+      setCol(HOME[r]);
     },
-    [mode],
+    [row],
+  );
+
+  const goCol = useCallback(
+    (next: number) => {
+      const c = clamp(next, GRID[row].length - 1);
+      if (c === col) return;
+      setMove({ axis: "x", dir: c > col ? 1 : -1 });
+      setCol(c);
+    },
+    [row, col],
   );
 
   /*
-    Arrow keys walk the same stack. The register used to carry a "pull for
+    Arrow keys walk the same grid. The register used to carry a "pull for
     record" button, which was also the only route through for a keyboard or
     assistive-tech user; removing the visible hint should not remove the
-    capability with it.
+    capability with it — and now that settings is a swipe rather than a button,
+    this is the only route to it that does not need a hand.
   */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
-      if (e.key === "ArrowDown" || e.key === "PageDown") go(deeper);
-      else if (e.key === "ArrowUp" || e.key === "PageUp") go(shallower);
+      if (e.key === "ArrowDown" || e.key === "PageDown") goRow(row + 1);
+      else if (e.key === "ArrowUp" || e.key === "PageUp") goRow(row - 1);
+      else if (e.key === "ArrowRight") goCol(col + 1);
+      else if (e.key === "ArrowLeft") goCol(col - 1);
       else return;
       e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [deeper, shallower, go]);
+  }, [goRow, goCol, row, col]);
 
   const recoil = useMotionValue(0);
   /*
@@ -1393,6 +1510,11 @@ export function DayScreen() {
   /** The destination only names itself once the pull is clearly deliberate. */
   const hintDown = useTransform(pullT, [0.5, 0.85], [0, 1], { clamp: true });
   const hintUp = useTransform(pullT, [-0.85, -0.5], [1, 0], { clamp: true });
+  /** Sideways travel under the finger, and the two hints it reveals. */
+  const deckX = useMotionValue(0);
+  const deckT = useTransform(deckX, [-24, 0, 24], [-1, 0, 1], { clamp: true });
+  const hintRight = useTransform(deckT, [0.45, 0.9], [0, 1], { clamp: true });
+  const hintLeft = useTransform(deckT, [-0.9, -0.45], [1, 0], { clamp: true });
   /** A gesture is running: the wheel drops its stagger and the rim its blur. */
   const [live, setLive] = useState(false);
   /*
@@ -1416,6 +1538,22 @@ export function DayScreen() {
     the finger.
   */
   const [scrubbing, setScrubbing] = useState(false);
+  const deck = useDeck({
+    x: deckX,
+    // The finger goes left to reach the page on the right, so the sign flips.
+    hasNeighbour: useCallback(
+      (d: -1 | 1) => (d < 0 ? col < lastCol : col > 0),
+      [col, lastCol],
+    ),
+    onCommit: useCallback((d: -1 | 1) => goCol(col - d), [goCol, col]),
+    claimed,
+    onLive: setLive,
+    // A sheet is a detour, not a destination: while one is open the grid holds
+    // still. Under reduced motion the whole horizontal axis stays available by
+    // keyboard but not by gesture.
+    enabled: pickedDate == null && floatingId == null && thread == null,
+  });
+
   const handleLive = useCallback((active: boolean) => {
     setLive(active);
     setScrubbing(active);
@@ -1447,9 +1585,10 @@ export function DayScreen() {
   }, [clock.ready, clock.date]);
 
   useEffect(() => {
-    if (mode === "record") recordHeadingRef.current?.focus();
-    if (mode === "history") historyHeadingRef.current?.focus();
-  }, [mode]);
+    // The surface change replaces everything on screen; without this a screen
+    // reader is left on a control that no longer exists.
+    if (page !== "day") headingRef.current?.focus();
+  }, [page]);
 
   // Editing habits in the settings sheet must redraw the spine underneath it.
   useEffect(() => {
@@ -1474,9 +1613,9 @@ export function DayScreen() {
   );
 
   const series = useMemo(
-    () => (mode === "record" ? buildHabitSeries(14, clock.date) : []),
+    () => (page === "record" ? buildHabitSeries(14, clock.date) : []),
     // Recompute whenever the record is opened or the log changes beneath it.
-    [mode, log, clock.date, habits],
+    [page, log, clock.date, habits],
   );
 
   const patch = useCallback(
@@ -1568,7 +1707,7 @@ export function DayScreen() {
   const showFocus =
     focus &&
     (recalled || !(day.state === "after" && day.graceIndex < 0)) &&
-    mode === "day";
+    page === "day";
   // No live block and nothing held: we are in real dead air, and the gap needs
   // its own now-indicator because the focus block has not started yet.
   const inDeadAir =
@@ -1699,8 +1838,8 @@ export function DayScreen() {
           because resistance alone reads as a frozen app.
         */
         dragElastic={{
-          top: shallower === mode ? 0.06 : 0.22,
-          bottom: deeper === mode ? 0.06 : 0.22,
+          top: rowAbove === row ? 0.06 : 0.22,
+          bottom: rowBelow === row ? 0.06 : 0.22,
         }}
         dragMomentum={false}
         onDragStart={() => {
@@ -1712,8 +1851,8 @@ export function DayScreen() {
           pull.set(0);
           setLive(false);
           if (claimed.current) return;
-          if (i.offset.y > PULL_COMMIT) go(deeper);
-          else if (i.offset.y < -PULL_COMMIT) go(shallower);
+          if (i.offset.y > PULL_COMMIT) goRow(row + 1);
+          else if (i.offset.y < -PULL_COMMIT) goRow(row - 1);
         }}
         transition={S_SNAP}
         className="flex h-full flex-col"
@@ -1729,16 +1868,17 @@ export function DayScreen() {
         <motion.div
           style={
             reduced
-              ? undefined
-              : { scale: depthScale, opacity: depthDim, y: depthLift }
+              ? { x: deckX }
+              : { scale: depthScale, opacity: depthDim, y: depthLift, x: deckX }
           }
-          className="relative h-full"
+          className="relative h-full touch-none"
+          {...deck}
         >
-          <AnimatePresence custom={modeDir} initial={false}>
-            {mode === "day" ? (
+          <AnimatePresence custom={move} initial={false}>
+            {page === "day" ? (
               <motion.div
                 key="day"
-                custom={modeDir}
+                custom={move}
                 variants={SURF}
                 initial={reduced ? { opacity: 0 } : "enter"}
                 animate={reduced ? { opacity: 1 } : "here"}
@@ -1756,7 +1896,6 @@ export function DayScreen() {
                     tally={habitTally(day, log)}
                     minutes={log?.deepWorkMinutes ?? 0}
                     reduced={reduced}
-                    onSettings={() => setSettingsOpen(true)}
                   />
                 </motion.div>
 
@@ -1823,7 +1962,14 @@ export function DayScreen() {
                       turned when nothing had. */}
                   <motion.div
                     style={reduced ? undefined : { y: seatDip }}
-                    className="shrink-0"
+                    /*
+                      relative, and it is load-bearing. popLayout pins an
+                      exiting child with absolute top/left measured against its
+                      `offsetParent` — with a static parent the popped card
+                      anchors to whatever positioned ancestor happens to be
+                      above it and lands in the wrong place entirely.
+                    */
+                    className="relative shrink-0"
                   >
                   <AnimatePresence mode="popLayout" custom={dir} initial={false}>
                     {showFocus && scrubbing ? (
@@ -1909,72 +2055,48 @@ export function DayScreen() {
                   />
                 </motion.div>
               </motion.div>
-            ) : mode === "record" ? (
-              <motion.div
-                key="record"
-                custom={modeDir}
-                variants={SURF}
-                initial={reduced ? { opacity: 0 } : "enter"}
-                animate={reduced ? { opacity: 1 } : "here"}
-                exit={reduced ? { opacity: 0 } : "gone"}
-                transition={SURFACE}
-                className="app-top-scroll absolute inset-0 flex flex-col overflow-hidden px-5"
-              >
-                {/* Top-aligned. It was centred for a while, which looked
-                    deliberate with five habits and left a hole under it — so
-                    the hole gets filled instead. `mt-auto` on the footer pins
-                    it to the bottom of the flex column without centring
-                    anything, which matters because centring a column whose
-                    content overflows clips it at BOTH ends, and this page
-                    cannot scroll to get the heading back. */}
-                {/* A real heading, focused on entry: the surface change
-                    replaces everything, and without this a screen reader is
-                    left on a control that no longer exists. */}
-                <div className="shrink-0 pb-2 text-center">
-                  <h1
-                    ref={recordHeadingRef}
-                    tabIndex={-1}
-                    className="kicker outline-none"
-                  >
-                    The record
-                  </h1>
-                  <p className="meta mt-1.5">last 14 days · never miss twice</p>
-                </div>
-                <FourteenDay series={series} />
-                {/* The space under the seismograph, spent on the one dimension
-                    nothing else in the app draws. Dropped outright on a short
-                    screen rather than squeezed — see .drop-when-short. */}
-                <div className="drop-when-short mt-auto shrink-0 pt-4 pb-1">
-                  <WeekLoad today={clock.date} version={dataVersion} />
-                </div>
-              </motion.div>
             ) : (
-              <motion.div
-                key="history"
-                custom={modeDir}
-                variants={SURF}
-                initial={reduced ? { opacity: 0 } : "enter"}
-                animate={reduced ? { opacity: 1 } : "here"}
-                exit={reduced ? { opacity: 0 } : "gone"}
-                transition={SURFACE}
-                className="app-top-scroll absolute inset-0 flex flex-col overflow-hidden px-5"
+              <Surface
+                key={page}
+                page={page}
+                move={move}
+                reduced={reduced}
+                headingRef={headingRef}
               >
-                <div className="pb-5 text-center">
-                  <h1
-                    ref={historyHeadingRef}
-                    tabIndex={-1}
-                    className="kicker outline-none"
-                  >
-                    History
-                  </h1>
-                  <p className="meta mt-1.5">tap any day to fill it in</p>
-                </div>
-                <HistoryScreen
-                  today={clock.date}
-                  version={dataVersion}
-                  onPick={setPickedDate}
-                />
-              </motion.div>
+                {page === "record" ? (
+                  <>
+                    <FourteenDay series={series} />
+                    {/* The space under the seismograph, spent on the one
+                        dimension nothing else in the app draws. Dropped
+                        outright on a short screen rather than squeezed. */}
+                    <div className="drop-when-short mt-auto shrink-0 pt-4 pb-1">
+                      <WeekLoad today={clock.date} version={dataVersion} />
+                    </div>
+                  </>
+                ) : page === "history" ? (
+                  <HistoryScreen
+                    today={clock.date}
+                    version={dataVersion}
+                    onPick={setPickedDate}
+                  />
+                ) : page === "calendar" ? (
+                  <CalendarScreen
+                    today={clock.date}
+                    version={dataVersion}
+                    onPick={setPickedDate}
+                  />
+                ) : page === "sessions" ? (
+                  <SessionsScreen
+                    today={clock.date}
+                    version={dataVersion}
+                    onOpen={setThread}
+                  />
+                ) : page === "habits" ? (
+                  <HabitsScreen version={dataVersion} />
+                ) : (
+                  <SystemScreen />
+                )}
+              </Surface>
             )}
           </AnimatePresence>
         </motion.div>
@@ -1996,9 +2118,29 @@ export function DayScreen() {
             className="app-top pointer-events-none absolute inset-x-0 top-0 flex flex-col items-center gap-2 pt-1"
           >
             <span className="meta">
-              {deeper === mode ? "nothing deeper" : DESTINATION[deeper]}
+              {rowBelow === row ? "nothing deeper" : TITLES[pageAt(rowBelow, HOME[rowBelow])]}
             </span>
             <span className="h-px w-8 bg-line-mid" />
+          </motion.div>
+          <motion.div
+            aria-hidden
+            style={{ opacity: hintLeft }}
+            className="pointer-events-none absolute inset-y-0 right-0 flex items-center gap-2 pr-1"
+          >
+            <span className="meta [writing-mode:vertical-rl]">
+              {col < lastCol ? TITLES[pageAt(row, col + 1)] : "nothing further"}
+            </span>
+            <span className="h-8 w-px bg-line-mid" />
+          </motion.div>
+          <motion.div
+            aria-hidden
+            style={{ opacity: hintRight }}
+            className="pointer-events-none absolute inset-y-0 left-0 flex items-center gap-2 pl-1"
+          >
+            <span className="h-8 w-px bg-line-mid" />
+            <span className="meta [writing-mode:vertical-rl]">
+              {col > 0 ? TITLES[pageAt(row, col - 1)] : "nothing further"}
+            </span>
           </motion.div>
           <motion.div
             aria-hidden
@@ -2007,20 +2149,17 @@ export function DayScreen() {
           >
             <span className="h-px w-8 bg-line-mid" />
             <span className="meta">
-              {shallower === mode ? "this is today" : DESTINATION[shallower]}
+              {rowAbove === row ? "this is today" : TITLES[pageAt(rowAbove, HOME[rowAbove])]}
             </span>
           </motion.div>
         </>
       )}
-      <SettingsSheet
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
       <DaySheet
         date={pickedDate}
         onClose={() => setPickedDate(null)}
         onSaved={() => setDataVersion((v) => v + 1)}
       />
+      <SessionThread label={thread} onClose={() => setThread(null)} />
       <FloatingHabitSheet
         habit={floatingId ? habitById.get(floatingId) : undefined}
         log={log}
