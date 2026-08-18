@@ -54,7 +54,7 @@ export function useClock(): Clock {
       nowMV.set(o.minutes);
     } else {
       const m = minutesNow();
-      setNowMin(m);
+      setNowMin(Math.floor(m));
       nowMV.set(m);
     }
     setReady(true);
@@ -66,7 +66,21 @@ export function useClock(): Clock {
     if (!ready || pinnedRef.current != null || datePinnedRef.current) return;
 
     const sync = () => {
-      setNowMin(minutesNow());
+      /*
+        Whole minutes, and only when the minute actually changes.
+
+        This used to store `minutesNow()` — a float carrying seconds and
+        milliseconds — so every one-second tick produced a new value, which
+        recomputed `buildDay` and re-rendered the entire day tree sixty times a
+        minute for a layout that can only change once a minute. Measured
+        mid-scrub, that is a whole extra tree render landing in the middle of
+        the gesture. The now-line still moves continuously; it rides `nowMV`,
+        which is a motion value and never touches React at all.
+      */
+      setNowMin((prev) => {
+        const m = Math.floor(minutesNow());
+        return m === prev ? prev : m;
+      });
       const today = todayISO();
       // Roll over at midnight without a reload.
       setDate((prev) => (prev === today ? prev : today));

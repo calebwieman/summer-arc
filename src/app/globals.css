@@ -368,6 +368,19 @@
     mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
   }
 
+  /*
+    The mirror of .drop-when-short. A page whose content is anchored to the top
+    and whose footer is anchored to the bottom leaves a hole in between when
+    there are few rows — five habits on a tall phone leaves about 250px of it.
+    Rather than invent something to put there, the rows take the room: same
+    layout, more air, and only where there is air to take.
+  */
+  @media (min-height: 741px) {
+    .roomy-when-tall {
+      padding-block: 1.375rem;
+    }
+  }
+
   .fade-bottom {
     -webkit-mask-image: linear-gradient(to top, transparent 0, #000 28px);
     mask-image: linear-gradient(to top, transparent 0, #000 28px);

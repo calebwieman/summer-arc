@@ -99,7 +99,7 @@ function Row({
         damping: 30,
         delay: index * 0.045,
       }}
-      className={compact ? "py-1.5" : "py-3"}
+      className={compact ? "py-1.5" : "roomy-when-tall py-3"}
     >
       <div className="flex items-baseline gap-2.5">
         <HabitGlyph

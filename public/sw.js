@@ -8,7 +8,7 @@
 // v5 dropped the old Summer entries; v6 ships the new mark.
 // v8 ships the mobile layout repair — an installed PWA holding the cached "/"
 // shell would otherwise keep serving the overlapping layout.
-const CACHE_NAME = "standard-cache-v24";
+const CACHE_NAME = "standard-cache-v25";
 const APP_SHELL = [
   "/",
   "/manifest.json",

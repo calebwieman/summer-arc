@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { memo } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AnimatePresence,
@@ -23,6 +24,7 @@ import { haptic } from "@/lib/haptics";
 import { IMPACT, NOTCH, ROW, SEAT, SURFACE, TICK } from "@/lib/motion";
 import type { DailyLog, HabitKey } from "@/lib/types";
 import { FourteenDay } from "@/components/review/fourteen-day";
+import { WeekLoad } from "@/components/review/week-load";
 import { HistoryScreen } from "@/components/history/history-screen";
 import { DaySheet } from "@/components/history/day-sheet";
 import { SettingsSheet } from "@/components/settings/settings-sheet";
@@ -264,6 +266,7 @@ function WheelRow({
   reduced,
   live,
   children,
+  ref,
 }: {
   d: number;
   side: Side;
@@ -271,6 +274,17 @@ function WheelRow({
   /** A gesture is in progress — the wheel is being turned right now. */
   live: boolean;
   children: ReactNode;
+  /*
+    AnimatePresence's popLayout mode works by cloning the child with a ref and
+    setting `position: absolute` on the node it gets back. A function component
+    that swallows the ref hands it nothing, so the mode silently does nothing at
+    all — exiting rows stay in normal flow for the length of their exit and
+    shove everything below them. Measured before this: `[data-motion-pop-id]`
+    peaked at zero across an entire scrub, and one sweep grew the seat's slot
+    from 121px to 1626px. React 19 passes `ref` as an ordinary prop, so
+    accepting it here is the whole fix.
+  */
+  ref?: React.Ref<HTMLDivElement>;
 }) {
   /*
     Nearest the seat leads, so one deliberate turn resolves outward instead of
@@ -280,16 +294,39 @@ function WheelRow({
     live and restored the moment the finger leaves.
   */
   const delay = live ? 0 : Math.min(0.14, (d - 1) * 0.022);
+  /*
+    A spring while the wheel settles, a short tween while it is being turned.
+
+    A spring runs until it has settled — about four hundred milliseconds here —
+    and a scrub delivers a notch every hundred. Five notches × fourteen rows ×
+    four animated properties left several hundred springs alive at once, all
+    being re-targeted before any of them finished. The tween is done in a
+    hundred and twenty milliseconds, so at most one generation is ever running,
+    and nobody can see the difference in a gesture that is itself moving.
+  */
+  const move = live
+    ? ({ duration: 0.12, ease: "easeOut" } as const)
+    : ({ ...ROW, delay } as const);
   return (
     <motion.div
-      layout
+      ref={ref}
+      /*
+        Layout animation is off while a gesture is running. Motion re-measures
+        the projection tree whenever a layout animation starts, and with a row
+        per block that is a full pass over the column on every notch — measured
+        at 456–484 `getBoundingClientRect` calls per notch. Between gestures it
+        is worth it, because that is when a single change should glide. During
+        one it is the single most expensive thing on the critical path, and the
+        pose animation is already carrying the movement.
+      */
+      layout={!live}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       // No blur on the way out. It bought nothing at this size, and a filter
       // establishes its own compositing layer — which the rail's mask does not
       // clip, so blurred rows escaped the fade and painted over the week strip.
       exit={{ opacity: 0 }}
-      transition={{ ...ROW, delay }}
+      transition={move}
     >
       <motion.div
         /*
@@ -301,7 +338,7 @@ function WheelRow({
         style={{ originX: 0, originY: side === -1 ? 1 : 0 }}
         initial={atSeat(side, reduced)}
         animate={pose(d, side, reduced, live)}
-        transition={{ ...ROW, delay }}
+        transition={move}
       >
         {children}
       </motion.div>
@@ -362,16 +399,40 @@ function Time({
 
 /* ---------------------------------------------------------------- masthead */
 
+/**
+ * The live clock, and the only thing in the app that ticks once a second.
+ *
+ * Its own component with its own state, so that tick re-renders eleven
+ * characters rather than the entire day tree. It used to live in `DayScreen`,
+ * which meant a full render — `buildDay`, fourteen wheel rows, the register —
+ * every second, including in the middle of a scrub.
+ */
+function Watch({ pinnedAt }: { pinnedAt: string | null }) {
+  const [now, setNow] = useState(pinnedAt ?? "");
+  useEffect(() => {
+    if (pinnedAt != null) {
+      setNow(pinnedAt);
+      return;
+    }
+    const tick = () => setNow(formatWatch(new Date()));
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [pinnedAt]);
+  return <Time label={now} className="mono-sm tabular-nums text-ink-2" />;
+}
+
 function Masthead({
   day,
-  seconds,
+  pinnedAt,
   tally,
   minutes,
   reduced,
   onSettings,
 }: {
   day: DayModel;
-  seconds: string;
+  /** A fixed time string when the clock is pinned for preview, else null. */
+  pinnedAt: string | null;
   tally: { done: number; total: number };
   minutes: number;
   reduced: boolean | null;
@@ -409,7 +470,7 @@ function Masthead({
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {/* The seconds are the proof of life — the now-rail moves too slowly to read. */}
-        <Time label={seconds} className="mono-sm tabular-nums text-ink-2" />
+        <Watch pinnedAt={pinnedAt} />
         <button
           type="button"
           aria-label="Settings"
@@ -437,7 +498,7 @@ function PastLine({ b }: { b: DayBlock }) {
   );
 }
 
-function Past({
+function PastInner({
   blocks,
   reduced,
   live,
@@ -499,7 +560,7 @@ function Past({
  * first pass of this feel wrong: recalling the morning left the evening piled
  * up above the seat, so nothing appeared to turn at all.
  */
-function Stale({
+function StaleInner({
   blocks,
   reduced,
   live,
@@ -522,6 +583,13 @@ function Stale({
   );
 }
 
+/**
+ * Memoised. A scrub re-renders `DayScreen` on every notch, and without this
+ * each of those renders walked all three rails and the register again even
+ * when nothing they draw had changed.
+ */
+const Past = memo(PastInner);
+
 /* ---------------------------------------------------------------- upcoming */
 
 /** Dead air worth naming. Below this it is just walking time. */
@@ -538,7 +606,7 @@ function OpenGap({ minutes }: { minutes: number }) {
   );
 }
 
-function Upcoming({
+function UpcomingInner({
   blocks,
   prevEndMin,
   reduced,
@@ -641,6 +709,9 @@ function Upcoming({
   );
 }
 
+const Stale = memo(StaleInner);
+const Upcoming = memo(UpcomingInner);
+
 /* --------------------------------------------------------------- gap now */
 
 /**
@@ -686,7 +757,7 @@ function GapNow({
 
 /* ------------------------------------------------------------------ footer */
 
-function Register({
+function RegisterInner({
   day,
   log,
   habits,
@@ -706,15 +777,20 @@ function Register({
   /** Raised while a scrub is running, so the wheel can drop its stagger. */
   onLive: (active: boolean) => void;
 }) {
-  const blockOf = new Map<HabitKey, number>();
-  const endedOf = new Map<HabitKey, boolean>();
-  for (const b of day.blocks) {
-    for (const id of b.habits) {
-      blockOf.set(id, b.index);
-      endedOf.set(id, b.phase === "past");
+  // Rebuilt only when the day model actually changes, not on every render the
+  // gesture causes — `pick` closes over these, so an unstable identity also
+  // re-created the callback and every handler on the row.
+  const { blockOf, endedOf, floating } = useMemo(() => {
+    const b = new Map<HabitKey, number>();
+    const e = new Map<HabitKey, boolean>();
+    for (const blk of day.blocks) {
+      for (const id of blk.habits) {
+        b.set(id, blk.index);
+        e.set(id, blk.phase === "past");
+      }
     }
-  }
-  const floating = new Set(day.floating);
+    return { blockOf: b, endedOf: e, floating: new Set(day.floating) };
+  }, [day]);
   const reduced = useReducedMotion();
   /*
     Where the wheel is parked. One marker, not a flag per letter — two habits
@@ -922,6 +998,85 @@ function Register({
   );
 }
 
+const Register = memo(RegisterInner);
+
+/**
+ * The seat, while the wheel is being turned.
+ *
+ * A block's real card is whatever its content needs it to be: 103 pixels for a
+ * class, 233 for one that carries a latch and a session note. That is fine when
+ * it changes once. It is not fine five times in half a second — measured, the
+ * card's height jumped 126px between notches and its top edge moved 273px in a
+ * single frame, which shoved the entire column and is exactly the "random pops"
+ * this exists to remove.
+ *
+ * So while a scrub is running the seat is this instead: the same chrome, the
+ * same roll, one fixed height, and about six DOM nodes against the real card's
+ * sixty. It also does not mount a latch, does not build the field set, and does
+ * not call `lastTrainingNote` — which walks every log in storage and parses it.
+ *
+ * The finger lifts and this hands over to the real card, which is the one
+ * moment in the gesture where the column is allowed to resize. That hand-off is
+ * the expansion: you scrub through compact cards and the one you stop on opens.
+ */
+const PREVIEW_H = 132;
+
+function SeatPreview({
+  b,
+  dir,
+  reduced,
+  ref,
+}: {
+  b: DayBlock;
+  dir: number;
+  reduced: boolean | null;
+  ref?: React.Ref<HTMLElement>;
+}) {
+  return (
+    <motion.section
+      ref={ref}
+      aria-hidden
+      variants={SEAT_POSE}
+      custom={dir}
+      initial="enter"
+      animate="seat"
+      exit="leave"
+      transition={SEAT}
+      style={{
+        height: PREVIEW_H,
+        ...(reduced ? {} : { transformPerspective: 1100 }),
+      }}
+      className="relative mx-5 shrink-0 overflow-hidden rounded-lg border border-line-soft bg-surface py-5 pr-4 pl-9"
+    >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-5 left-4 w-px bg-line-mid"
+      />
+      {/*
+        The shell is one element for the whole gesture and only its contents
+        change. Keying the shell per block looked identical and was the bug:
+        five notches in half a second each mounted a card and started a 340ms
+        exit, so by the end of a scrub six of them were on screen at once,
+        animating. The block name is two nodes, it replaces itself with no exit
+        animation at all, and there is nothing left to pile up.
+      */}
+      <motion.div
+        key={b.index}
+        initial={reduced ? false : { y: dir >= 0 ? 22 : -22, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={ROW}
+      >
+        <span className="mono-sm tabular-nums text-ink-3">
+          <Time at={b.block.start} /> — <Time at={b.block.end} />
+        </span>
+        <h1 className="mt-2.5 truncate text-[32px] font-light leading-[1.02] tracking-[-0.03em] text-ink">
+          {b.block.label}
+        </h1>
+      </motion.div>
+    </motion.section>
+  );
+}
+
 /* ------------------------------------------------------------- focus block */
 
 function FocusBlock({
@@ -937,6 +1092,7 @@ function FocusBlock({
   onReturn,
   dir,
   reduced,
+  ref,
 }: {
   b: DayBlock;
   day: DayModel;
@@ -952,6 +1108,8 @@ function FocusBlock({
   /** +1 when the wheel last turned toward later blocks, -1 toward earlier. */
   dir: number;
   reduced: boolean | null;
+  /** Forwarded so AnimatePresence's popLayout can take it out of flow. */
+  ref?: React.Ref<HTMLElement>;
 }) {
   const live = day.currentIndex === b.index;
   const held = day.graceIndex === b.index;
@@ -972,6 +1130,7 @@ function FocusBlock({
 
   return (
     <motion.section
+      ref={ref}
       /*
         No `layout` here any more. The seat animates on a variant that moves it
         in y and turns it in x, and layout animation drives the very same
@@ -1250,8 +1409,16 @@ export function DayScreen() {
     at three pixels, well before the scrub's cone decides at ten.
   */
   const claimed = useRef(false);
+  /*
+    Distinct from `live`, which is true for any gesture including a vertical
+    drag. Only a scrub collapses the seat to its preview — a downward pull is
+    not turning the wheel and has no business rebuilding the card underneath
+    the finger.
+  */
+  const [scrubbing, setScrubbing] = useState(false);
   const handleLive = useCallback((active: boolean) => {
     setLive(active);
+    setScrubbing(active);
     if (active) claimed.current = true;
   }, []);
   /** The day surface has been shown once; its entrance is spent. */
@@ -1271,21 +1438,7 @@ export function DayScreen() {
     the change, while the variants belong to the cards, which do not.
   */
   const seatDip = useMotionValue(0);
-  /** Which way the wheel last turned. Drives every entrance and exit on it. */
-  const [dir, setDir] = useState(0);
   const loadedFor = useRef<string>("");
-
-  const [seconds, setSeconds] = useState("--:--:--");
-  useEffect(() => {
-    if (clock.pinned) {
-      setSeconds(formatClock(clock.nowMin));
-      return;
-    }
-    const tick = () => setSeconds(formatWatch(new Date()));
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, [clock.pinned, clock.nowMin]);
 
   useEffect(() => {
     if (!clock.ready || loadedFor.current === clock.date) return;
@@ -1378,6 +1531,7 @@ export function DayScreen() {
         saveDailyLog(next);
         return next;
       });
+      setDataVersion((v) => v + 1);
       if (returnTimer.current) window.clearTimeout(returnTimer.current);
       returnTimer.current = window.setTimeout(
         () => {
@@ -1439,22 +1593,46 @@ export function DayScreen() {
     seven tenths of the amplitude — present, but not a second event.
   */
   const lastSeat = useRef(focusIndex);
+  /*
+    Direction is derived during render, not stored in state.
+
+    It used to be `setDir(d)` inside the seat-change effect — a second React
+    state update chasing the `setSelected` that caused it, so every notch of a
+    scrub re-rendered the whole tree twice instead of once. Nothing needs a
+    render to see this: it is read at render time by the variants, and by the
+    time the effect runs the value is already correct.
+  */
+  const dirRef = useRef(1);
+  if (focusIndex !== lastSeat.current) {
+    dirRef.current = focusIndex > lastSeat.current ? 1 : -1;
+  }
+  const dir = dirRef.current;
+
   useEffect(() => {
     if (focusIndex === lastSeat.current) return;
     const d = focusIndex > lastSeat.current ? 1 : -1;
     const gain = restoring.current ? 0.7 : 1;
     restoring.current = false;
     lastSeat.current = focusIndex;
-    setDir(d);
     if (reduced) return;
-    // Keyframes must run as a tween — see fireRecoil for why a spring across
-    // them plays nothing at all.
-    animate(drum, [0, -d * 3.2 * gain, d * 0.9 * gain, 0], {
+    /*
+      Both of these start from wherever they currently are, not from zero.
+
+      Written as `[0, …]` the first keyframe is a hard assignment, so a notch
+      landing while the previous kick was still swinging teleported the whole
+      housing back to centre for one frame. Measured across a single sweep:
+      thirty-seven single-frame discontinuities, up to 5.26° of rotation and
+      8.18px of travel. That is a pop, and it was the drum's own doing.
+
+      Keyframes must still run as a tween — see fireRecoil for why a spring
+      across them plays nothing at all.
+    */
+    animate(drum, [drum.get(), -d * 3.2 * gain, d * 0.9 * gain, 0], {
       duration: 0.44,
       times: [0, 0.18, 0.52, 1],
       ease: IMPACT,
     });
-    animate(seatDip, [0, d * 5 * gain, 0], {
+    animate(seatDip, [seatDip.get(), d * 5 * gain, 0], {
       duration: 0.5,
       times: [0, 0.16, 1],
       ease: IMPACT,
@@ -1473,20 +1651,28 @@ export function DayScreen() {
     morning: the seat changed and the column did not move, which is the exact
     opposite of a wheel.
   */
-  const above = day.blocks.filter((b) => b.index < focusIndex);
-  const below = day.blocks.filter((b) => b.index > focusIndex);
-  // Phases run in order, so below is a run of finished blocks followed by a
-  // run of ones still to come.
-  const stale = below.filter((b) => b.phase === "past");
-  const ahead = below.filter((b) => b.phase !== "past");
-  // The first gap ahead is measured from whatever actually precedes it on the
-  // wheel — otherwise recalling Wake reports sixteen hours open before bed.
-  const beforeAhead =
-    stale.length > 0
-      ? stale[stale.length - 1].endMin
-      : focus && showFocus
-        ? focus.endMin
-        : null;
+  // Memoised, so that a render caused by something else — the tally changing,
+  // a gesture flag flipping — hands the rails the same arrays it did last time
+  // and they can skip re-rendering entirely.
+  const { above, stale, ahead, beforeAhead } = useMemo(() => {
+    const a = day.blocks.filter((b) => b.index < focusIndex);
+    const below = day.blocks.filter((b) => b.index > focusIndex);
+    // Phases run in order, so below is a run of finished blocks followed by a
+    // run of ones still to come.
+    const st = below.filter((b) => b.phase === "past");
+    const ah = below.filter((b) => b.phase !== "past");
+    const f = day.blocks[focusIndex];
+    return {
+      above: a,
+      stale: st,
+      ahead: ah,
+      // The first gap ahead is measured from whatever actually precedes it on
+      // the wheel — otherwise recalling Wake reports sixteen hours open before
+      // bed.
+      beforeAhead:
+        st.length > 0 ? st[st.length - 1].endMin : (f?.endMin ?? null),
+    };
+  }, [day, focusIndex]);
 
   if (!clock.ready) return <main className="min-h-dvh" aria-hidden />;
 
@@ -1566,7 +1752,7 @@ export function DayScreen() {
                 <motion.div {...rise(0, reduced, !entered.current)} className="shrink-0">
                   <Masthead
                     day={day}
-                    seconds={seconds}
+                    pinnedAt={clock.pinned ? formatClock(clock.nowMin) : null}
                     tally={habitTally(day, log)}
                     minutes={log?.deepWorkMinutes ?? 0}
                     reduced={reduced}
@@ -1640,7 +1826,14 @@ export function DayScreen() {
                     className="shrink-0"
                   >
                   <AnimatePresence mode="popLayout" custom={dir} initial={false}>
-                    {showFocus ? (
+                    {showFocus && scrubbing ? (
+                      <SeatPreview
+                        key="preview"
+                        b={focus}
+                        dir={dir}
+                        reduced={reduced}
+                      />
+                    ) : showFocus ? (
                       <FocusBlock
                         key={focus.index}
                         b={focus}
@@ -1727,27 +1920,32 @@ export function DayScreen() {
                 transition={SURFACE}
                 className="app-top-scroll absolute inset-0 flex flex-col overflow-hidden px-5"
               >
-                {/* my-auto, not justify-center: with auto margins the block
-                    centres while there is room to spare and falls back to
-                    top-aligned when there is not. Centring a flex column whose
-                    content overflows clips it at BOTH ends, which would eat the
-                    heading on a short screen — and this page cannot scroll to
-                    get it back. */}
-                <div className="my-auto">
-                  {/* A real heading, focused on entry: the morph replaces the
-                      whole surface, and without this a screen reader is left on
-                      a control that no longer exists and announces nothing. */}
-                  <div className="pb-2 text-center">
-                    <h1
-                      ref={recordHeadingRef}
-                      tabIndex={-1}
-                      className="kicker outline-none"
-                    >
-                      The record
-                    </h1>
-                    <p className="meta mt-1.5">last 14 days · never miss twice</p>
-                  </div>
-                  <FourteenDay series={series} />
+                {/* Top-aligned. It was centred for a while, which looked
+                    deliberate with five habits and left a hole under it — so
+                    the hole gets filled instead. `mt-auto` on the footer pins
+                    it to the bottom of the flex column without centring
+                    anything, which matters because centring a column whose
+                    content overflows clips it at BOTH ends, and this page
+                    cannot scroll to get the heading back. */}
+                {/* A real heading, focused on entry: the surface change
+                    replaces everything, and without this a screen reader is
+                    left on a control that no longer exists. */}
+                <div className="shrink-0 pb-2 text-center">
+                  <h1
+                    ref={recordHeadingRef}
+                    tabIndex={-1}
+                    className="kicker outline-none"
+                  >
+                    The record
+                  </h1>
+                  <p className="meta mt-1.5">last 14 days · never miss twice</p>
+                </div>
+                <FourteenDay series={series} />
+                {/* The space under the seismograph, spent on the one dimension
+                    nothing else in the app draws. Dropped outright on a short
+                    screen rather than squeezed — see .drop-when-short. */}
+                <div className="drop-when-short mt-auto shrink-0 pt-4 pb-1">
+                  <WeekLoad today={clock.date} version={dataVersion} />
                 </div>
               </motion.div>
             ) : (

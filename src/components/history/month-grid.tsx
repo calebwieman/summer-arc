@@ -18,6 +18,9 @@ import { getHabits } from "@/lib/habits";
 
 const DOW = ["M", "T", "W", "T", "F", "S", "S"];
 
+/** Six rows of seven. Every month is drawn at this size whatever it contains. */
+const SLOTS = 42;
+
 /** Later months come from the right, earlier ones from the left. */
 const MONTH = {
   enter: (dir: number) => ({ x: dir * 24, opacity: 0 }),
@@ -203,6 +206,28 @@ export function MonthGrid({
             </button>
           );
         })}
+        {/*
+          Padded out to a fixed six rows, always.
+
+          A month is four, five or six rows depending on where its first day
+          falls, so paging through the year changed the page's height and shoved
+          everything under it — on a surface that cannot scroll, that reads as
+          the page jumping around, which is exactly what it was. February 2027
+          is a genuine four-row month (the 1st is a Monday, 28 days), so a fix
+          sized only for the five-versus-six case would still leave one 104px
+          lurch a year.
+
+          Padding rather than a min-height on the grid itself: the rows are
+          implicit and auto-sized, and grid's default `align-content: normal`
+          stretches them to fill, so a floor on the grid would grow a short
+          month's row pitch instead of leaving space at the bottom — a
+          different jump, and a worse one.
+        */}
+        {Array.from({
+          length: Math.max(0, SLOTS - cells.lead - cells.days.length),
+        }).map((_, i) => (
+          <span key={`tail-${i}`} aria-hidden className="min-h-11" />
+        ))}
       </motion.div>
       </AnimatePresence>
       </div>
