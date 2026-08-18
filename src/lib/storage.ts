@@ -14,6 +14,7 @@ import {
   planMigration,
 } from "./migrate";
 import { blocksForDate } from "./schedule";
+import { getPrefs, setPrefs, type Prefs } from "./prefs";
 import { getTodayString } from "./today";
 import type { DailyLog, HabitKey } from "./types";
 
@@ -209,21 +210,33 @@ export interface BackupBundle {
    * fresh device and every habit you had defined is missing, so its entries
    * have nothing to render them and simply vanish. Reading 3 still works; it
    * just cannot bring the registry back, because it never held it.
+   *
+   * 5 adds `prefs`: the theme, whether the notification prompt has been shown,
+   * and when the last backup was taken. Small things, and every restore before
+   * this dropped all of them on the floor. Older files still read — `importBackup`
+   * refuses only on a missing `daily` and ignores what it does not recognise.
    */
-  schema: 3 | 4;
+  schema: 3 | 4 | 5;
   exportedAt: string;
   /** The registry, retired habits included, so history stays readable. */
   habits?: HabitDef[];
+  /** Everything that is a setting rather than a habit or a day. */
+  prefs?: Prefs;
   daily: Record<string, DailyLog>;
 }
 
 export function exportBackup(): BackupBundle {
   const daily: Record<string, DailyLog> = {};
   for (const log of getAllDailyLogs()) daily[log.date] = log;
+  const exportedAt = new Date().toISOString();
+  // Taking a backup is the event worth remembering, so it is recorded here
+  // rather than by the button — every path out of the app goes through this.
+  const prefs = setPrefs({ lastBackupAt: exportedAt });
   return {
-    schema: 4,
-    exportedAt: new Date().toISOString(),
+    schema: 5,
+    exportedAt,
     habits: getAllHabits(),
+    prefs,
     daily,
   };
 }
@@ -285,6 +298,10 @@ export function importBackup(
     }
     count += 1;
   }
+  // Settings a restore used to drop on the floor: the theme, whether the
+  // notification prompt has been answered, and when the file itself was taken.
+  if (b.prefs && typeof b.prefs === "object") setPrefs(b.prefs);
+
   return { daily: count, migrated, habitsAdded };
 }
 

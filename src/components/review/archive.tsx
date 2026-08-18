@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { haptic } from "@/lib/haptics";
+import { daysSinceBackup } from "@/lib/prefs";
 import { todayISO } from "@/lib/clock";
 import {
   exportBackup,
@@ -58,6 +59,28 @@ export function Archive() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [confirmImport, setConfirmImport] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [standing, setStanding] = useState("backup writes a file you can keep");
+
+  /*
+    What the app actually knows about its own safety, instead of the same
+    sentence on day one and day three hundred. iOS evicts a PWA's localStorage
+    under storage pressure after about a week unopened, and until now nothing
+    here could tell you whether a file existed at all.
+  */
+  useEffect(() => {
+    const logs = getAllDailyLogs();
+    const since = daysSinceBackup();
+    const stored = `${logs.length} ${logs.length === 1 ? "day" : "days"} stored`;
+    if (since == null) {
+      setStanding(`${stored} · never backed up`);
+      return;
+    }
+    setStanding(
+      since === 0
+        ? `${stored} · backed up today`
+        : `${stored} · last backup ${since}d ago`,
+    );
+  }, [status]);
   const dayCount = getAllDailyLogs().length;
 
   const onFile = async (file: File) => {
@@ -142,7 +165,7 @@ export function Archive() {
       />
 
       <p className="mono-xs mt-4 min-h-4 text-center text-ink-3">
-        {status ?? "backup writes a file you can keep"}
+        {status ?? standing}
       </p>
     </section>
   );

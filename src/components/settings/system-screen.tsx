@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Archive } from "@/components/review/archive";
 import { useTheme, type ThemePref } from "@/components/theme/theme-provider";
@@ -47,6 +48,58 @@ function Appearance() {
 }
 
 /**
+ * The nightly reminder, and whether it can actually reach you.
+ *
+ * `nightly-reminder.tsx` asks for notification permission silently on first
+ * mount and records that it asked. If the answer was a reflexive "don't allow",
+ * the 21:00 check-in is gone permanently, the app never mentions it again, and
+ * there was no path anywhere in the UI to anything about it — a shipped feature
+ * with no settings surface at all. Read live from `Notification.permission` so
+ * it cannot go stale.
+ */
+function Notifications() {
+  const [state, setState] = useState<NotificationPermission | "unsupported">(
+    "default",
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setState("unsupported");
+      return;
+    }
+    setState(Notification.permission);
+  }, []);
+
+  const words =
+    state === "granted"
+      ? "on · a check-in at 10:00p"
+      : state === "denied"
+        ? "blocked — iOS Settings → Standard → Notifications"
+        : state === "unsupported"
+          ? "this browser has no notifications"
+          : "not asked yet";
+
+  return (
+    <section>
+      <h3 className="kicker">Nightly check-in</h3>
+      <p className="mono-xs mt-2 text-ink-3">{words}</p>
+      {state === "default" ? (
+        <button
+          type="button"
+          onClick={() => {
+            haptic(8);
+            Notification.requestPermission().then(setState);
+          }}
+          className="mono-xs mt-3 flex min-h-11 w-full items-center justify-center rounded-sm border border-line-mid text-ink-2 hover:border-accent hover:text-ink"
+        >
+          turn it on
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+/**
  * The machine behind the instrument: how it looks, and how it survives.
  *
  * Two swipes left from the day, and deliberately the furthest thing from it —
@@ -57,6 +110,7 @@ export function SystemScreen() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-7">
       <Appearance />
+      <Notifications />
       <Archive />
       {/* Which build is actually running, readable from the phone. It is the
           only way to tell whether a deploy has landed. */}
