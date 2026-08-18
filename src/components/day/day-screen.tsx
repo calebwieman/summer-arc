@@ -19,8 +19,9 @@ import { getDailyLog, lastTrainingNote, saveDailyLog } from "@/lib/storage";
 import { formatHeaderDate, makeEmptyLog } from "@/lib/today";
 import { HABITS_CHANGED, getHabits, type HabitDef } from "@/lib/habits";
 import { habitTally } from "@/lib/day";
-import { formatClock, formatDuration } from "@/lib/clock";
+import { formatClock, formatDuration, formatTime, formatWatch } from "@/lib/clock";
 import { haptic } from "@/lib/haptics";
+import { IMPACT, NOTCH, ROW, SEAT, SURFACE, TICK } from "@/lib/motion";
 import type { DailyLog, HabitKey } from "@/lib/types";
 import { FourteenDay } from "@/components/review/fourteen-day";
 import { HistoryScreen } from "@/components/history/history-screen";
@@ -33,7 +34,17 @@ import { HabitGlyph } from "./habit-glyph";
 import { Latch } from "./latch";
 import { MinutesField, NoteField, ShippedField } from "./fields";
 
-const PULL_COMMIT = 96;
+/*
+  How far the finger travels before a pull commits.
+
+  96 with an elastic of 0.14 meant the surface moved about thirteen visible
+  pixels before changing screen — the gesture was 87% invisible. 72 against an
+  elastic of 0.22 is sixteen pixels of literal travel, still taut, but it is
+  now paired with the outgoing surface scaling and dimming under the finger and
+  the destination naming itself, so what you see tracks what you are doing.
+*/
+const PULL_COMMIT = 72;
+
 
 /**
  * The surfaces, ordered by depth. Pulling down goes deeper, pulling up comes
@@ -48,8 +59,16 @@ function step(mode: Mode, delta: 1 | -1): Mode {
   const i = STACK.indexOf(mode);
   return STACK[Math.min(STACK.length - 1, Math.max(0, i + delta))];
 }
-const S_PAGE = { type: "spring", stiffness: 300, damping: 34, mass: 0.9 } as const;
+/** Snapping the surface back to rest when a pull is released short. */
 const S_SNAP = { type: "spring", stiffness: 700, damping: 44, mass: 0.8 } as const;
+
+/** Where a pull is heading, in the words the destination uses for itself. */
+const DESTINATION: Record<Mode, string> = {
+  day: "Today",
+  record: "The record",
+  history: "History",
+};
+
 
 /** Bands arrive top-down; the live block leads so the eye lands there first. */
 function rise(order: number, reduced: boolean | null) {
@@ -96,16 +115,13 @@ const WHEEL_STEP = 12;
 const WHEEL_MAX = 58;
 const WHEEL_PULL = 44;
 
-/** The wheel's own spring: quick, barely any overshoot, settles like a detent. */
-const S_WHEEL = { type: "spring", stiffness: 380, damping: 34, mass: 0.7 } as const;
-/** The seat's is looser, so the arriving card lands with a little weight. */
-const S_SEAT = { type: "spring", stiffness: 420, damping: 32, mass: 0.8 } as const;
+
 
 /** Which side of the seat a row is on: -1 above (past), +1 below (ahead). */
 type Side = 1 | -1;
 
 /** Where a row `d` places from the seat rests on the curve. */
-function pose(d: number, side: Side, reduced: boolean | null) {
+function pose(d: number, side: Side, reduced: boolean | null, live = false) {
   if (reduced) {
     return {
       rotateX: 0,
@@ -124,22 +140,42 @@ function pose(d: number, side: Side, reduced: boolean | null) {
     y: -side * pull,
     scale: Math.max(0.86, 1 - d * 0.012),
     opacity: Math.max(0.42, 1 - d * 0.055),
-    // The rim goes soft. Chosen deliberately over a flatter, more legible
-    // curve — the far end of the day is context, and the seat is the work.
-    filter: d >= 4 ? `blur(${Math.min(0.9, (d - 3) * 0.2).toFixed(2)}px)` : "blur(0px)",
+    /*
+      The rim goes soft. Chosen deliberately over a flatter, more legible
+      curve — the far end of the day is context, and the seat is the work.
+
+      Not while a gesture is running, though. Every blurred row is its own
+      raster on Safari, and re-rasterising fifteen of them per frame under a
+      surface that is also being scaled is the one thing here that would drop
+      frames. It comes back the moment the finger leaves, and nobody has ever
+      studied the far rim mid-swipe.
+    */
+    filter:
+      live || d < 4
+        ? "blur(0px)"
+        : `blur(${Math.min(0.9, (d - 3) * 0.2).toFixed(2)}px)`,
   };
 }
 
-/** Rows join and leave the wheel through the seat, because that is the truth. */
+/**
+ * Rows join and leave the wheel through the seat, because that is the truth.
+ *
+ * It starts part-lit rather than at nothing. A block crossing the seat leaves
+ * one subtree and mounts in another, so structurally it *is* a death and a
+ * birth — but it should read as the same row continuing round the drum. From
+ * opacity 0 with a stagger behind it, a fast scrub never let any row reach
+ * full strength and the whole column went to smear for the length of the
+ * gesture. From 0.35 and fourteen pixels out, the same crossing reads as a
+ * re-settle.
+ */
 function atSeat(side: Side, reduced: boolean | null) {
   if (reduced) return { opacity: 0 };
   return {
-    opacity: 0,
-    y: -side * 26,
+    opacity: 0.35,
+    y: -side * 14,
     // Flatter than its resting pose: it has just come over the top.
     rotateX: side * 12,
-    scale: 0.95,
-    filter: "blur(1.4px)",
+    scale: 0.97,
   };
 }
 
@@ -155,23 +191,34 @@ function WheelRow({
   d,
   side,
   reduced,
+  live,
   children,
 }: {
   d: number;
   side: Side;
   reduced: boolean | null;
+  /** A gesture is in progress — the wheel is being turned right now. */
+  live: boolean;
   children: ReactNode;
 }) {
-  // Nearest the seat leads, so a turn resolves outward instead of arriving all
-  // at once.
-  const delay = Math.min(0.14, (d - 1) * 0.022);
+  /*
+    Nearest the seat leads, so one deliberate turn resolves outward instead of
+    arriving all at once. Under a continuous scrub the same stagger is pure
+    latency — five glyphs in half a second never let a row finish arriving
+    before the next turn restarted it — so it is dropped while a gesture is
+    live and restored the moment the finger leaves.
+  */
+  const delay = live ? 0 : Math.min(0.14, (d - 1) * 0.022);
   return (
     <motion.div
       layout
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0, filter: "blur(3px)" }}
-      transition={{ ...S_WHEEL, delay }}
+      // No blur on the way out. It bought nothing at this size, and a filter
+      // establishes its own compositing layer — which the rail's mask does not
+      // clip, so blurred rows escaped the fade and painted over the week strip.
+      exit={{ opacity: 0 }}
+      transition={{ ...ROW, delay }}
     >
       <motion.div
         /*
@@ -182,8 +229,8 @@ function WheelRow({
         */
         style={{ originX: 0, originY: side === -1 ? 1 : 0 }}
         initial={atSeat(side, reduced)}
-        animate={pose(d, side, reduced)}
-        transition={{ ...S_WHEEL, delay }}
+        animate={pose(d, side, reduced, live)}
+        transition={{ ...ROW, delay }}
       >
         {children}
       </motion.div>
@@ -197,7 +244,7 @@ function WheelRow({
  * `custom` carries the direction, which is the only way an exiting card can
  * know which way to leave — by then its own props are a render out of date.
  */
-const SEAT = {
+const SEAT_POSE = {
   enter: (dir: number) => ({
     opacity: 0,
     y: dir >= 0 ? 38 : -38,
@@ -213,6 +260,35 @@ const SEAT = {
   }),
 };
 
+/**
+ * A wall-clock time, with the meridiem set back.
+ *
+ * The letter is a qualifier, not data — you read "4:45" and already know which
+ * one it is from where you are in the day. Holding it at the same weight as
+ * the digits made the rail noisier than the 24-hour version it replaced, which
+ * defeated the point. Opacity rather than a colour token, so it stays correct
+ * against whatever ink the caller is using.
+ */
+function Time({
+  at,
+  label,
+  className,
+}: {
+  /** "HH:mm", the schedule's own format. */
+  at?: string;
+  /** Already formatted, for the live watch. */
+  label?: string;
+  className?: string;
+}) {
+  const t = label ?? formatTime(at ?? "00:00");
+  return (
+    <span className={className}>
+      {t.slice(0, -1)}
+      <span className="opacity-60">{t.slice(-1)}</span>
+    </span>
+  );
+}
+
 /* ---------------------------------------------------------------- masthead */
 
 function Masthead({
@@ -220,12 +296,14 @@ function Masthead({
   seconds,
   tally,
   minutes,
+  reduced,
   onSettings,
 }: {
   day: DayModel;
   seconds: string;
   tally: { done: number; total: number };
   minutes: number;
+  reduced: boolean | null;
   onSettings: () => void;
 }) {
   return (
@@ -234,19 +312,33 @@ function Masthead({
         <p className="kicker truncate">{formatHeaderDate(day.date)}</p>
         {/* Where the day actually stands, at a glance, without a trip anywhere. */}
         <p className="mono-xs mt-1.5 text-ink-3">
+          {/* Keyed, so the count arrives rather than being swapped. The app
+              had two number readouts behaving two different ways — the minutes
+              field dropped its new value in and this one changed silently. */}
           <span className="text-ink-2">
-            {tally.done}/{tally.total}
+            <motion.span
+              key={tally.done}
+              initial={reduced ? false : { y: -5, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={TICK}
+              className="inline-block tabular-nums"
+            >
+              {tally.done}
+            </motion.span>
+            /{tally.total}
           </span>
           {minutes > 0 ? ` · ${minutes}m deep` : ""}
           {" · ends "}
-          {day.blocks.length ? day.blocks[day.blocks.length - 1].block.end : "—"}
+          {day.blocks.length ? (
+            <Time at={day.blocks[day.blocks.length - 1].block.end} />
+          ) : (
+            "—"
+          )}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {/* The seconds are the proof of life — the now-rail moves too slowly to read. */}
-        <span className="mono-sm tabular-nums text-ink-2">
-          {seconds}
-        </span>
+        <Time label={seconds} className="mono-sm tabular-nums text-ink-2" />
         <button
           type="button"
           aria-label="Settings"
@@ -265,9 +357,10 @@ function Masthead({
 function PastLine({ b }: { b: DayBlock }) {
   return (
     <div className="flex items-baseline gap-2.5 py-[3px]">
-      <span className="mono-sm w-[42px] shrink-0 tabular-nums text-ink-3">
-        {b.block.start}
-      </span>
+      <Time
+        at={b.block.start}
+        className="mono-sm w-[52px] shrink-0 text-right tabular-nums text-ink-3"
+      />
       <span className="mono-xs truncate text-ink-3">{b.block.label}</span>
     </div>
   );
@@ -276,9 +369,11 @@ function PastLine({ b }: { b: DayBlock }) {
 function Past({
   blocks,
   reduced,
+  live,
 }: {
   blocks: DayBlock[];
   reduced: boolean | null;
+  live: boolean;
 }) {
   if (blocks.length === 0) {
     /*
@@ -313,7 +408,7 @@ function Past({
     <motion.div layout="position" className="px-5">
       <AnimatePresence mode="popLayout">
         {blocks.map((b, i) => (
-          <WheelRow key={b.index} d={n - i} side={-1} reduced={reduced}>
+          <WheelRow key={b.index} d={n - i} side={-1} reduced={reduced} live={live}>
             <PastLine b={b} />
           </WheelRow>
         ))}
@@ -336,16 +431,18 @@ function Past({
 function Stale({
   blocks,
   reduced,
+  live,
 }: {
   blocks: DayBlock[];
   reduced: boolean | null;
+  live: boolean;
 }) {
   if (blocks.length === 0) return null;
   return (
     <motion.div layout="position" className="px-5">
       <AnimatePresence mode="popLayout">
         {blocks.map((b, i) => (
-          <WheelRow key={b.index} d={i + 1} side={1} reduced={reduced}>
+          <WheelRow key={b.index} d={i + 1} side={1} reduced={reduced} live={live}>
             <PastLine b={b} />
           </WheelRow>
         ))}
@@ -362,7 +459,7 @@ const OPEN_MIN = 12;
 function OpenGap({ minutes }: { minutes: number }) {
   return (
     <div className="mt-1.5 flex items-center gap-2.5">
-      <span className="w-[42px] shrink-0" />
+      <span className="w-[52px] shrink-0" />
       <span className="h-px w-3 bg-line-mid" />
       {/* The most useful line on the screen between two classes. */}
       <span className="mono-xs text-ink-3">{formatDuration(minutes)} open</span>
@@ -374,12 +471,14 @@ function Upcoming({
   blocks,
   prevEndMin,
   reduced,
+  live,
   dOffset = 0,
 }: {
   blocks: DayBlock[];
   /** End of whatever precedes this list, so the first gap is measurable. */
   prevEndMin: number | null;
   reduced: boolean | null;
+  live: boolean;
   /** Rows already standing between the seat and this list, on the same curve. */
   dOffset?: number;
 }) {
@@ -398,17 +497,18 @@ function Upcoming({
     <motion.div layout="position" className="px-5">
       <div className="h-px w-6 bg-line-mid" />
       <AnimatePresence mode="popLayout">
-      <WheelRow key={next.index} d={dOffset + 1} side={1} reduced={reduced}>
+      <WheelRow key={next.index} d={dOffset + 1} side={1} reduced={reduced} live={live}>
         {leadGap >= OPEN_MIN ? <OpenGap minutes={leadGap} /> : null}
         <motion.div
           layout
-          transition={S_PAGE}
+          transition={ROW}
           className="flex items-center gap-2.5"
           style={{ height: upcomingHeight(next.untilStart) * 0.52 }}
         >
-          <span className="mono-sm w-[42px] shrink-0 tabular-nums text-ink-3">
-            {next.block.start}
-          </span>
+          <Time
+            at={next.block.start}
+            className="mono-sm w-[52px] shrink-0 text-right tabular-nums text-ink-3"
+          />
           <motion.span
             className="origin-left truncate font-light tracking-[-0.02em] text-ink-2"
             // Authored at 26px and scaled down: ~14px of travel as it approaches,
@@ -431,17 +531,18 @@ function Upcoming({
         // type size. This is what `lib/layout.ts` exists for.
         const q = approach(b.untilStart);
         return (
-          <WheelRow key={b.index} d={dOffset + i + 2} side={1} reduced={reduced}>
+          <WheelRow key={b.index} d={dOffset + i + 2} side={1} reduced={reduced} live={live}>
             {gap >= OPEN_MIN ? <OpenGap minutes={gap} /> : null}
             <motion.div
               layout
-              transition={S_PAGE}
+              transition={ROW}
               className="flex items-center gap-2.5"
               style={{ height: upcomingHeight(b.untilStart) * 0.42 }}
             >
-              <span className="mono-sm w-[42px] shrink-0 tabular-nums text-ink-3">
-                {b.block.start}
-              </span>
+              <Time
+                at={b.block.start}
+                className="mono-sm w-[52px] shrink-0 text-right tabular-nums text-ink-3"
+              />
               <motion.span
                 className="origin-left truncate tracking-[-0.01em] text-ink-2"
                 style={{
@@ -458,7 +559,7 @@ function Upcoming({
       })}
 
       {after.length > 0 ? (
-        <WheelRow key="rim" d={dOffset + soon.length + 2} side={1} reduced={reduced}>
+        <WheelRow key="rim" d={dOffset + soon.length + 2} side={1} reduced={reduced} live={live}>
           <p className="mono-xs mt-2 truncate text-ink-4">
             {after.map((b) => b.block.label).join(" · ")}
           </p>
@@ -521,6 +622,7 @@ function Register({
   focusIndex,
   onRecall,
   onFloating,
+  onLive,
 }: {
   day: DayModel;
   log: DailyLog | null;
@@ -530,6 +632,8 @@ function Register({
   onRecall: (blockIndex: number) => void;
   /** A habit with no block of its own — committed in a sheet instead. */
   onFloating: (id: HabitKey) => void;
+  /** Raised while a scrub is running, so the wheel can drop its stagger. */
+  onLive: (active: boolean) => void;
 }) {
   const blockOf = new Map<HabitKey, number>();
   const endedOf = new Map<HabitKey, boolean>();
@@ -563,6 +667,8 @@ function Register({
   const marks = useRef<{ id: string; cx: number }[]>([]);
   const scrubbing = useRef(false);
   const scrubbed = useRef(false);
+  /** The cone test has run for this gesture; its verdict stands. */
+  const decided = useRef(false);
   const startAt = useRef<{ x: number; y: number } | null>(null);
   const lastPicked = useRef<string | null>(null);
 
@@ -620,6 +726,7 @@ function Register({
         startAt.current = { x: e.clientX, y: e.clientY };
         scrubbing.current = false;
         scrubbed.current = false;
+        decided.current = false;
         lastPicked.current = null;
       }}
       onPointerMove={(e) => {
@@ -627,22 +734,45 @@ function Register({
         if (!s) return;
         const dx = e.clientX - s.x;
         const dy = e.clientY - s.y;
-        // Only claim it once the movement is clearly sideways, so a vertical
-        // swipe that happens to start here still reaches the surface stack.
-        if (!scrubbing.current) {
-          if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy)) return;
-          scrubbing.current = true;
-          scrubbed.current = true;
+
+        /*
+          Decide once, on a forgiving cone, and then stand by it.
+
+          The old test — |dx| ≥ 10 and |dx| > |dy| — was re-evaluated on every
+          single move until it passed, which meant a gesture that began with
+          any vertical drift could never engage the scrub, not even after it
+          straightened out. A 110×110 diagonal from the first letter moved
+          nothing at all: too vertical for the register, and the register had
+          already swallowed the touch. Mouse drags are straight; thumbs are
+          not, and this is a control you use with a thumb at 22:00.
+
+          So: wait for ten pixels of travel in any direction, then ask once
+          whether this is more sideways than not, on a ±59° cone rather than a
+          45° one. A verdict of "no" hands the gesture to the surface stack for
+          the rest of its life, which is what makes a vertical swipe that
+          starts on the register still reach the record.
+        */
+        if (!decided.current) {
+          if (Math.hypot(dx, dy) < 10) return;
+          decided.current = true;
+          scrubbing.current = Math.abs(dx) > Math.abs(dy) * 0.6;
+          if (scrubbing.current) {
+            scrubbed.current = true;
+            onLive(true);
+          }
         }
+        if (!scrubbing.current) return;
         const id = nearest(e.clientX);
         if (id) pick(id);
       }}
       onPointerUp={() => {
         startAt.current = null;
+        if (scrubbing.current) onLive(false);
         scrubbing.current = false;
       }}
       onPointerCancel={() => {
         startAt.current = null;
+        if (scrubbing.current) onLive(false);
         scrubbing.current = false;
       }}
     >
@@ -686,7 +816,7 @@ function Register({
                   layoutId="register-seat"
                   aria-hidden
                   className="absolute inset-y-[9px] -inset-x-[3px] rounded-sm border border-line-mid bg-surface-2"
-                  transition={S_WHEEL}
+                  transition={NOTCH}
                 />
               ) : null}
               <HabitGlyph
@@ -768,12 +898,12 @@ function FocusBlock({
         on every detent. Popping out of flow is enough: the next card takes the
         seat the instant this one is released.
       */
-      variants={SEAT}
+      variants={SEAT_POSE}
       custom={dir}
       initial="enter"
       animate="seat"
       exit="leave"
-      transition={S_SEAT}
+      transition={SEAT}
       style={reduced ? undefined : { transformPerspective: 1100 }}
       // shrink-0: the card owns a latch and a field, and a clipped commit
       // control is worse than a clipped context row. The rails absorb the
@@ -829,7 +959,7 @@ function FocusBlock({
       <div className="relative">
         <div className="flex items-baseline justify-between gap-3">
           <span className="mono-sm tabular-nums text-ink-3">
-            {b.block.start} — {b.block.end}
+            <Time at={b.block.start} /> — <Time at={b.block.end} />
           </span>
           <span className="mono-xs shrink-0 text-ink-3">
             {recalled
@@ -914,7 +1044,9 @@ function FocusBlock({
               afternoon offers a Lights-out latch that stamps 16:00.
               Plural now — nothing stops a user anchoring two habits here. */}
           {b.habits.length > 0 && !started ? (
-            <p className="mono-xs text-ink-3">opens {b.block.start}</p>
+            <p className="mono-xs text-ink-3">
+              opens <Time at={b.block.start} />
+            </p>
           ) : null}
           {started
             ? b.habits.map((id) => {
@@ -986,7 +1118,32 @@ export function DayScreen() {
   }, [deeper, shallower]);
 
   const recoil = useMotionValue(0);
+  /*
+    The pull.
+
+    This value used to be written on every frame of the app's central gesture
+    and read by nothing at all — the surface stack recorded the finger and
+    threw it away. Everything below is what it drives now: the surface you are
+    leaving falls back and dims, the one you are heading for is named before
+    you commit to it, and the whole thing is continuous rather than a threshold
+    that fires.
+
+    0.94 is the floor on scale deliberately. The rails are 10px uppercase mono
+    and `globals.css` puts the legibility line at about ten pixels, so 9.4px
+    for the quarter-second of a gesture is the most this can spend.
+  */
   const pull = useMotionValue(0);
+  const pullT = useTransform(pull, [-PULL_COMMIT, 0, PULL_COMMIT], [-1, 0, 1], {
+    clamp: true,
+  });
+  const depthScale = useTransform(pullT, [-1, 0, 1], [1.015, 1, 0.94]);
+  const depthDim = useTransform(pullT, [-1, 0, 1], [1, 1, 0.55]);
+  const depthLift = useTransform(pullT, [-1, 0, 1], [0, 0, -14]);
+  /** The destination only names itself once the pull is clearly deliberate. */
+  const hintDown = useTransform(pullT, [0.5, 0.85], [0, 1], { clamp: true });
+  const hintUp = useTransform(pullT, [-0.85, -0.5], [1, 0], { clamp: true });
+  /** A gesture is running: the wheel drops its stagger and the rim its blur. */
+  const [live, setLive] = useState(false);
   /** The housing's own tip, kicked each time the wheel lands on a new seat. */
   const drum = useMotionValue(0);
   /** Which way the wheel last turned. Drives every entrance and exit on it. */
@@ -999,11 +1156,7 @@ export function DayScreen() {
       setSeconds(formatClock(clock.nowMin));
       return;
     }
-    const tick = () => {
-      const d = new Date();
-      const p = (n: number) => String(n).padStart(2, "0");
-      setSeconds(`${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`);
-    };
+    const tick = () => setSeconds(formatWatch(new Date()));
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
@@ -1059,6 +1212,32 @@ export function DayScreen() {
     [clock.date],
   );
 
+  /*
+    Backfill is a visit, not a destination, so the wheel returns to now once a
+    habit is thrown — but not instantly.
+
+    Returning inside the write did two things wrong. It was a side effect
+    inside a `setLog` updater, which React 19 calls twice under StrictMode and
+    may re-invoke under concurrent rendering; and it meant the single most
+    important action in the app was rewarded with the whole screen dissolving
+    before you could read the timestamp you had just earned. Committing Wake
+    from a backfilled block rendered the same block label twice on screen
+    150ms later, one arriving in the seat and one blurring out of the rail.
+
+    620ms is the commit spring settling, plus the receipt fading up, plus
+    enough dwell to actually read the stamp. Only then does the wheel turn
+    back, and it turns back gently — see `restoring`.
+  */
+  const returnTimer = useRef<number | null>(null);
+  /** The next seat change is a return from backfill, not a turn of the wheel. */
+  const restoring = useRef(false);
+  useEffect(
+    () => () => {
+      if (returnTimer.current) window.clearTimeout(returnTimer.current);
+    },
+    [],
+  );
+
   const setHabit = useCallback(
     (k: HabitKey, v: boolean) => {
       setLog((prev) => {
@@ -1066,8 +1245,6 @@ export function DayScreen() {
         const stamps = { ...(base.stamps ?? {}) };
         if (v) stamps[k] = Math.floor(clock.nowMin);
         else delete stamps[k];
-        // Backfill is a visit, not a destination — go back to now once thrown.
-        setSelected(null);
         const next: DailyLog = {
           ...base,
           habits: { ...base.habits, [k]: v },
@@ -1076,8 +1253,16 @@ export function DayScreen() {
         saveDailyLog(next);
         return next;
       });
+      if (returnTimer.current) window.clearTimeout(returnTimer.current);
+      returnTimer.current = window.setTimeout(
+        () => {
+          restoring.current = true;
+          setSelected(null);
+        },
+        reduced ? 200 : 620,
+      );
     },
-    [clock.date, clock.nowMin],
+    [clock.date, clock.nowMin, reduced],
   );
 
   // The whole instrument takes the shock — the mass reads as the device.
@@ -1114,21 +1299,36 @@ export function DayScreen() {
     !!focus &&
     focus.phase === "upcoming";
   /*
-    Every turn of the wheel tips the whole housing a few degrees against the
-    direction of travel and lets it fall back. It is small — five degrees, gone
-    in half a second — and it is what stops a scrub from reading as a list
-    swapping its contents: the column has mass, and you just moved it.
+    Every turn of the wheel tips the whole housing against the direction of
+    travel and lets it fall back past centre before it settles. It is what
+    stops a scrub from reading as a list swapping its contents: the column has
+    mass, and you just moved it.
+
+    The first version was a one-way ease from −4.5° to 0 over 620ms, which is
+    no anticipation, no follow-through and — at perspective 1400 on a 500px
+    column — about two pixels of apparent movement spread over two thirds of a
+    second. Invisible, and competing with a seat swap and fourteen re-poses for
+    attention. Now it peaks in 80ms, swings past zero, and is done in 440ms.
+
+    Returning to now after a commit is a restoration, not a turn, so it gets
+    seven tenths of the amplitude — present, but not a second event.
   */
   const lastSeat = useRef(focusIndex);
   useEffect(() => {
     if (focusIndex === lastSeat.current) return;
     const d = focusIndex > lastSeat.current ? 1 : -1;
+    const gain = restoring.current ? 0.7 : 1;
+    restoring.current = false;
     lastSeat.current = focusIndex;
     setDir(d);
     if (reduced) return;
     // Keyframes must run as a tween — see fireRecoil for why a spring across
     // them plays nothing at all.
-    animate(drum, [-d * 4.5, 0], { duration: 0.62, ease: [0.16, 1, 0.3, 1] });
+    animate(drum, [0, -d * 3.2 * gain, d * 0.9 * gain, 0], {
+      duration: 0.44,
+      times: [0, 0.18, 0.52, 1],
+      ease: IMPACT,
+    });
   }, [focusIndex, drum, reduced]);
 
   const lastPastEnd =
@@ -1169,26 +1369,51 @@ export function DayScreen() {
         drag="y"
         dragConstraints={{ top: 0, bottom: 0 }}
         /*
-          Taut. 0.45 let the whole surface wallow half a screen before
-          committing, which is what made the pages feel loose; 0.14 gives just
-          enough travel to see the gesture register. The ends of the stack go
-          almost rigid, so "there is nothing below this" is felt in the hand
-          rather than discovered by a pull that does nothing.
+          Taut, but no longer mute. 0.45 let the whole surface wallow half a
+          screen before committing, which is what made the pages feel loose;
+          0.14 was the correction and overshot, leaving thirteen visible pixels
+          for a gesture the whole app is built around. 0.22 against the shorter
+          PULL_COMMIT keeps the same tautness and gives the finger something to
+          be attached to, because the surface now scales, dims and names its
+          destination as it goes.
+
+          The ends of the stack stay nearly rigid — 0.06, still 3.7× stiffer
+          than a live edge, so "there is nothing below this" is felt in the
+          hand. It is paired with an end-stop rule that flashes at the edge,
+          because resistance alone reads as a frozen app.
         */
         dragElastic={{
-          top: shallower === mode ? 0.03 : 0.14,
-          bottom: deeper === mode ? 0.03 : 0.14,
+          top: shallower === mode ? 0.06 : 0.22,
+          bottom: deeper === mode ? 0.06 : 0.22,
         }}
         dragMomentum={false}
+        onDragStart={() => setLive(true)}
         onDrag={(_, i) => pull.set(i.offset.y)}
         onDragEnd={(_, i) => {
           pull.set(0);
+          setLive(false);
           if (i.offset.y > PULL_COMMIT) setMode(deeper);
           else if (i.offset.y < -PULL_COMMIT) setMode(shallower);
         }}
         transition={S_SNAP}
         className="flex h-full flex-col"
       >
+        {/*
+          Depth lives on its own element, wrapping the surfaces rather than
+          sitting on them. Each surface already animates its own opacity and y
+          on entry and exit, and a motion value bound to the same properties
+          would simply be overwritten the moment those ran. One stable wrapper
+          outside the AnimatePresence takes the finger; the surfaces inside it
+          keep their own choreography.
+        */}
+        <motion.div
+          style={
+            reduced
+              ? undefined
+              : { scale: depthScale, opacity: depthDim, y: depthLift }
+          }
+          className="flex h-full flex-col"
+        >
         <LayoutGroup>
           <AnimatePresence mode="popLayout" initial={false}>
             {mode === "day" ? (
@@ -1198,7 +1423,7 @@ export function DayScreen() {
                 initial={reduced ? { opacity: 0 } : { opacity: 0, y: -14 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduced ? { opacity: 0 } : { opacity: 0, y: 16 }}
-                transition={S_PAGE}
+                transition={SURFACE}
                 // Clearance for the status-bar band lives in .app-top — see
                 // globals.css for why it is a named class rather than an
                 // arbitrary value repeated at three call sites.
@@ -1210,6 +1435,7 @@ export function DayScreen() {
                     seconds={seconds}
                     tally={habitTally(day, log)}
                     minutes={log?.deepWorkMinutes ?? 0}
+                    reduced={reduced}
                     onSettings={() => setSettingsOpen(true)}
                   />
                 </motion.div>
@@ -1254,7 +1480,7 @@ export function DayScreen() {
                     }
                     className="fade-top flex min-h-0 flex-[1.7] flex-col justify-end gap-3 overflow-hidden pb-1"
                   >
-                    <Past blocks={above} reduced={reduced} />
+                    <Past blocks={above} reduced={reduced} live={live} />
                   </motion.div>
 
                   {inDeadAir && focus ? (
@@ -1289,18 +1515,20 @@ export function DayScreen() {
                     ) : (
                       <motion.section
                         key="closed"
-                        variants={SEAT}
+                        variants={SEAT_POSE}
                         custom={dir}
                         initial="enter"
                         animate="seat"
                         exit="leave"
-                        transition={S_SEAT}
+                        transition={SEAT}
                         className="mx-5 shrink-0 rounded-lg border border-line-soft bg-surface px-5 py-10 text-center"
                       >
                         <h1 className="text-[32px] font-light leading-none tracking-[-0.03em] text-ink">
                           Day closed
                         </h1>
-                        <p className="mono-xs mt-3 text-ink-3">next up 04:45</p>
+                        <p className="mono-xs mt-3 text-ink-3">
+                      next up <Time at={day.blocks[0]?.block.start ?? "04:45"} />
+                    </p>
                       </motion.section>
                     )}
                   </AnimatePresence>
@@ -1314,11 +1542,12 @@ export function DayScreen() {
                     }
                     className="fade-bottom flex min-h-0 flex-1 flex-col justify-start gap-3 overflow-hidden pt-3"
                   >
-                    <Stale blocks={stale} reduced={reduced} />
+                    <Stale blocks={stale} reduced={reduced} live={live} />
                     <Upcoming
                       blocks={ahead}
                       prevEndMin={beforeAhead}
                       reduced={reduced}
+                      live={live}
                       dOffset={stale.length}
                     />
                   </motion.div>
@@ -1338,6 +1567,7 @@ export function DayScreen() {
                     focusIndex={focusIndex}
                     onRecall={setSelected}
                     onFloating={setFloatingId}
+                    onLive={setLive}
                   />
                 </motion.div>
               </motion.div>
@@ -1348,7 +1578,7 @@ export function DayScreen() {
                 initial={reduced ? { opacity: 0 } : { opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduced ? { opacity: 0 } : { opacity: 0, y: -16 }}
-                transition={S_PAGE}
+                transition={SURFACE}
                 className="app-top-scroll flex h-full flex-col overflow-hidden px-5"
               >
                 {/* my-auto, not justify-center: with auto margins the block
@@ -1381,7 +1611,7 @@ export function DayScreen() {
                 initial={reduced ? { opacity: 0 } : { opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduced ? { opacity: 0 } : { opacity: 0, y: -16 }}
-                transition={S_PAGE}
+                transition={SURFACE}
                 className="app-top-scroll flex h-full flex-col overflow-hidden px-5"
               >
                 <div className="pb-5 text-center">
@@ -1403,7 +1633,41 @@ export function DayScreen() {
             )}
           </AnimatePresence>
         </LayoutGroup>
+        </motion.div>
       </motion.div>
+
+      {/*
+        Where the pull is going, named before it commits, at the edge the
+        gesture is opening up. Pulling down reveals space at the top, so the
+        destination is written there; pulling up writes it at the foot. At an
+        end of the stack the same label says so instead — resistance on its own
+        is indistinguishable from a frozen app, which is what 0.03 elastic and
+        four pixels of travel used to feel like.
+      */}
+      {reduced ? null : (
+        <>
+          <motion.div
+            aria-hidden
+            style={{ opacity: hintDown }}
+            className="app-top pointer-events-none absolute inset-x-0 top-0 flex flex-col items-center gap-2 pt-1"
+          >
+            <span className="meta">
+              {deeper === mode ? "nothing deeper" : DESTINATION[deeper]}
+            </span>
+            <span className="h-px w-8 bg-line-mid" />
+          </motion.div>
+          <motion.div
+            aria-hidden
+            style={{ opacity: hintUp }}
+            className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 pb-[max(env(safe-area-inset-bottom),8px)]"
+          >
+            <span className="h-px w-8 bg-line-mid" />
+            <span className="meta">
+              {shallower === mode ? "this is today" : DESTINATION[shallower]}
+            </span>
+          </motion.div>
+        </>
+      )}
       <SettingsSheet
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}

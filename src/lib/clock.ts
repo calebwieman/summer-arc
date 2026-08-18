@@ -10,12 +10,38 @@ export function minutesNow(d: Date = new Date()): number {
   );
 }
 
-/** 462.5 -> "07:42" */
+/*
+  Twelve-hour everywhere it is read.
+
+  The schedule stores "HH:mm" in 24h and every comparison in the app is done in
+  minutes since midnight, so nothing about the clock's arithmetic changes — this
+  is a display format and only a display format. The meridiem is a single
+  lowercase letter with no space because the day rail gives a start time about
+  fifty pixels and "12:20 PM" does not fit in them; "12:20p" does, and stays
+  unambiguous, which "12:20" on its own would not.
+*/
+function clockLabel(h24: number, m: number, seconds?: number): string {
+  const h = h24 % 12 === 0 ? 12 : h24 % 12;
+  const mm = String(m).padStart(2, "0");
+  const ss = seconds == null ? "" : `:${String(seconds).padStart(2, "0")}`;
+  return `${h}:${mm}${ss}${h24 < 12 ? "a" : "p"}`;
+}
+
+/** 462.5 -> "7:42a" */
 export function formatClock(minutes: number): string {
   const total = Math.floor(minutes);
-  const h = Math.floor(total / 60) % 24;
-  const m = total % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  return clockLabel(Math.floor(total / 60) % 24, total % 60);
+}
+
+/** "17:30", the schedule's own format -> "5:30p". */
+export function formatTime(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  return clockLabel(h, m);
+}
+
+/** With seconds, for the masthead's proof of life. */
+export function formatWatch(d: Date): string {
+  return clockLabel(d.getHours(), d.getMinutes(), d.getSeconds());
 }
 
 /** Compact duration for countdowns: 95 -> "1h 35m", 8 -> "8m", 0.4 -> "<1m". */
