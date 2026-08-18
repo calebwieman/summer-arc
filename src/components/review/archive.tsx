@@ -68,17 +68,15 @@ export function Archive() {
     here could tell you whether a file existed at all.
   */
   useEffect(() => {
-    const logs = getAllDailyLogs();
+    // The day count is already the section's subtitle; this line is only ever
+    // about the file, and saying "78 days stored" twice would be noise.
     const since = daysSinceBackup();
-    const stored = `${logs.length} ${logs.length === 1 ? "day" : "days"} stored`;
-    if (since == null) {
-      setStanding(`${stored} · never backed up`);
-      return;
-    }
     setStanding(
-      since === 0
-        ? `${stored} · backed up today`
-        : `${stored} · last backup ${since}d ago`,
+      since == null
+        ? "never backed up — one tap writes a file you can keep"
+        : since === 0
+          ? "backed up today"
+          : `last backup ${since}d ago`,
     );
   }, [status]);
   const dayCount = getAllDailyLogs().length;

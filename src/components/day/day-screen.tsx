@@ -1541,6 +1541,8 @@ export function DayScreen() {
   const deckT = useTransform(deckX, [-24, 0, 24], [-1, 0, 1], { clamp: true });
   const hintRight = useTransform(deckT, [0.45, 0.9], [0, 1], { clamp: true });
   const hintLeft = useTransform(deckT, [-0.9, -0.45], [1, 0], { clamp: true });
+  /** A text field has focus, so the grid gives horizontal touch back to iOS. */
+  const [editing, setEditing] = useState(false);
   /** A gesture is running: the wheel drops its stagger and the rim its blur. */
   const [live, setLive] = useState(false);
   /*
@@ -1897,7 +1899,29 @@ export function DayScreen() {
               ? { x: deckX }
               : { scale: depthScale, opacity: depthDim, y: depthLift, x: deckX }
           }
-          className="relative h-full touch-none"
+          /*
+            touch-none, except while a field has focus.
+
+            `pan-x ∩ none = none`, which is how the grid takes horizontal touch
+            away from the browser for this whole subtree. But touch-action only
+            intersects downward, so it also reaches the history search box and
+            the seat card's note fields — and caret placement, the magnifier and
+            the selection handles are text-editing behaviours that iOS is not
+            documented to keep under `none`. While a field is focused this falls
+            back to the inherited `pan-x` and iOS gets whatever it wants: the
+            grid is already disarmed over inputs, the stack's drag already
+            exempts them, and the register keeps its own `touch-none` regardless
+            so the scrub is unaffected mid-edit. touch-action is read at touch
+            start and focus changes on tap, so the next touch sees the new value.
+          */
+          className={`relative h-full ${editing ? "" : "touch-none"}`}
+          onFocusCapture={(e) => {
+            const el = e.target as HTMLElement;
+            setEditing(
+              /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.isContentEditable,
+            );
+          }}
+          onBlurCapture={() => setEditing(false)}
           {...deck}
         >
           <AnimatePresence custom={move} initial={false}>

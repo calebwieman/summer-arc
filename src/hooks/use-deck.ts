@@ -99,8 +99,15 @@ export function useDeck({
       // Capture phase: a descendant calling stopPropagation would otherwise
       // disarm the deck for its whole subtree, silently and with no error.
       const el = e.target as HTMLElement | null;
+      // Text inputs are excluded here rather than being tagged one by one, and
+      // the test matches Motion's own `isClickingTextInputChild` exactly — the
+      // two arbiters should agree about what counts as editing rather than
+      // disagreeing. Buttons and links deliberately do not block.
+      const editing =
+        !!el &&
+        (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.isContentEditable);
       armed.current =
-        enabled && !el?.closest('[data-deck="off"]');
+        enabled && !editing && !el?.closest('[data-deck="off"]');
       origin.current = { x: e.clientX, y: e.clientY };
       verdict.current = null;
     },
