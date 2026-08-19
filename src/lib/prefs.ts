@@ -17,6 +17,8 @@ export interface Prefs {
   notifAsked?: boolean;
   /** "system" | "light" | "dark", mirroring the theme provider. */
   theme?: string;
+  /** How a habit is committed: "hold" | "tap" | "throw". */
+  commitStyle?: string;
 }
 
 export function getPrefs(): Prefs {

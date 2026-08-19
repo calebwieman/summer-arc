@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Archive } from "@/components/review/archive";
 import { useTheme, type ThemePref } from "@/components/theme/theme-provider";
+import { COMMIT_STYLES, useCommitStyle } from "@/lib/commit-style";
 import { haptic } from "@/lib/haptics";
 import { TICK } from "@/lib/motion";
 
@@ -43,6 +44,52 @@ function Appearance() {
           );
         })}
       </div>
+    </section>
+  );
+}
+
+/**
+ * How a habit gets committed.
+ *
+ * The drag came first and reads well, but it competes with the swipe that moves
+ * between surfaces and asks for most of the track width — clunky in the one
+ * situation this app is built for, a thumb at 04:45. All three gestures are
+ * built; this is the only honest way to settle which one is right.
+ */
+function CommitStyle() {
+  const [style, setStyle] = useCommitStyle();
+  const active = COMMIT_STYLES.find((s) => s.value === style);
+  return (
+    <section>
+      <h3 className="kicker">Commit style</h3>
+      <div className="mt-3 flex gap-2">
+        {COMMIT_STYLES.map((o) => {
+          const on = style === o.value;
+          return (
+            <motion.button
+              key={o.value}
+              type="button"
+              aria-pressed={on}
+              onClick={() => {
+                haptic(8);
+                setStyle(o.value);
+              }}
+              whileTap={{ scale: 0.97 }}
+              transition={TICK}
+              className={`min-h-11 flex-1 rounded-sm border font-mono text-[10px] uppercase tracking-[0.16em] transition-colors ${
+                on
+                  ? "border-accent bg-ink/[0.10] text-ink"
+                  : "border-line-mid text-ink-3 hover:text-ink-2"
+              }`}
+            >
+              {o.label}
+            </motion.button>
+          );
+        })}
+      </div>
+      {/* What the thumb is being asked to do, in words, so the choice is
+          answerable without leaving the sheet to go and try it. */}
+      <p className="mono-xs mt-2.5 text-center text-ink-3">{active?.hint}</p>
     </section>
   );
 }
@@ -110,6 +157,7 @@ export function SystemScreen() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-7">
       <Appearance />
+      <CommitStyle />
       <Notifications />
       <Archive />
       {/* Which build is actually running, readable from the phone. It is the

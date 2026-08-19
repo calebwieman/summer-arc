@@ -13,6 +13,7 @@ import { ChevronsRight } from "lucide-react";
 import { iconFor } from "./habit-icons";
 import { HAPTIC_COMMIT, HAPTIC_RELEASE, haptic } from "@/lib/haptics";
 import { formatClock } from "@/lib/clock";
+import { useCommitStyle } from "@/lib/commit-style";
 import type { HabitKey } from "@/lib/types";
 
 const TRACK_H = 60;
@@ -20,22 +21,28 @@ const CAR = 52;
 const PAD = 4;
 const TICKS = 9;
 
-/** Arm point. Past this, releasing commits — the last 28% is optional travel. */
-const ARM_AT = 0.72;
-/** Drag a committed carriage back below this to release it. */
+/** THROW: arm point, well short of the old 72% — a flick past a third does it. */
+const THROW_ARM = 0.35;
+/** THROW: past this speed, release commits from wherever the carriage sits. */
+const THROW_VELOCITY = 650;
+/** THROW: drag a committed carriage back below this to release it. */
 const RELEASE_BELOW = 0.45;
-/** Hold this long on a thrown latch to release it without dragging. */
-const UNDO_MS = 520;
-/** Movement beyond this cancels a hold — it was a drag, not a press. */
-const HOLD_SLOP = 8;
 
-/** Commit is tight and fast. Reject is slower and bouncier — it drops back. */
+/** HOLD: press this long to commit. Short enough not to feel like a penalty. */
+const HOLD_MS = 380;
+/** Releasing is deliberately slower than committing, in every mode. */
+const HOLD_RELEASE_MS = 560;
+/** Movement beyond this is a swipe, not a press — hand it back to navigation. */
+const HOLD_SLOP = 10;
+
+/** TAP: how long the one-tap undo stays offered. */
+const UNDO_WINDOW_MS = 6000;
+
 const S_COMMIT = { type: "spring", stiffness: 640, damping: 40, mass: 1.1 } as const;
 const S_REJECT = { type: "spring", stiffness: 380, damping: 26, mass: 1.2 } as const;
 /**
  * Reduced motion still moves the carriage — it has to, or the control cannot be
- * operated. It is shortened and critically damped instead of removed, which is
- * a different choreography rather than an off switch.
+ * operated. Shortened and critically damped, not removed.
  */
 const S_REDUCED = { type: "spring", stiffness: 900, damping: 60, mass: 0.6 } as const;
 
@@ -51,6 +58,15 @@ interface LatchProps {
   onRecoil?: () => void;
 }
 
+/**
+ * One control, three gestures, chosen in Settings.
+ *
+ * The drag was the original answer — deliberate, physical, hard to fire by
+ * accident. It became clunky once the app went swipe-driven end to end: a
+ * horizontal drag inside the content competes with the gesture that moves
+ * between surfaces, and it asks for most of the track width on top of that.
+ * Rather than guess at a single replacement, all three live here.
+ */
 export function Latch({
   habit,
   icon,
@@ -61,16 +77,16 @@ export function Latch({
   onRecoil,
 }: LatchProps) {
   const reduced = useReducedMotion();
+  const [style] = useCommitStyle();
   const trackRef = useRef<HTMLDivElement>(null);
   const travelRef = useRef(0);
   const [travel, setTravel] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [armed, setArmed] = useState(false);
+  const [undoUntil, setUndoUntil] = useState(0);
   const x = useMotionValue(0);
-  const undoProgress = useMotionValue(0);
-  const holdTimer = useRef<number | null>(null);
+  const holdRun = useRef<{ stop: () => void } | null>(null);
   const holdOrigin = useRef<{ x: number; y: number } | null>(null);
-  /** Set when this component drove the change, so parking doesn't re-animate. */
   const selfDriven = useRef(false);
   const mounted = useRef(false);
   const Glyph = iconFor(icon);
@@ -90,8 +106,7 @@ export function Latch({
   }, []);
 
   // Park the carriage to match state. Skipped while a finger is on it, and
-  // skipped for changes this component just animated itself — otherwise the
-  // reject spring was cancelled and replayed as a commit spring every time.
+  // skipped for changes this component drove itself.
   useEffect(() => {
     if (dragging) return;
     const target = checked ? travelRef.current : 0;
@@ -99,10 +114,9 @@ export function Latch({
       selfDriven.current = false;
       return;
     }
-    // First paint, or a width change: snap, never replay the throw. Only count
-    // as mounted once the track has actually been measured — otherwise the
-    // zero-width first pass consumes the snap and the real positioning tries
-    // to animate, leaving an already-thrown latch parked at the wrong end.
+    // Only count as mounted once the track has been measured — otherwise the
+    // zero-width first pass consumes the snap and a thrown latch animates in
+    // from the wrong end.
     if (!mounted.current || travelRef.current === 0) {
       if (travelRef.current > 0) mounted.current = true;
       x.set(target);
@@ -115,13 +129,11 @@ export function Latch({
   const progress = useTransform(x, (v) =>
     travelRef.current > 0 ? Math.min(1, Math.max(0, v / travelRef.current)) : 0,
   );
-  useMotionValueEvent(progress, "change", (p) => setArmed(p >= ARM_AT));
+  useMotionValueEvent(progress, "change", (p) => setArmed(p >= THROW_ARM));
 
   const fill = useTransform(progress, [0, 1], [0, 0.13]);
   const labelFade = useTransform(progress, [0, 0.5], [1, 0]);
   const glyphDim = useTransform(progress, [0, 1], [0.55, 1]);
-  const undoWipe = useTransform(undoProgress, (p) => `${(1 - p) * 100}%`);
-  /** Only readable once the carriage has cleared the left of the track. */
   const receiptFade = useTransform(progress, [0.45, 0.8], [0, 1]);
 
   const commit = useCallback(
@@ -133,45 +145,65 @@ export function Latch({
       haptic(next ? HAPTIC_COMMIT : HAPTIC_RELEASE);
       if (next) onRecoil?.();
       onChange(next);
+      // The one-tap undo is only offered in tap mode, and only just afterwards.
+      setUndoUntil(next && style === "tap" ? Date.now() + UNDO_WINDOW_MS : 0);
     },
-    [checked, onChange, onRecoil, reduced, x],
+    [checked, onChange, onRecoil, reduced, x, style],
   );
 
-  const clearHold = useCallback(() => {
+  /** Abandon an in-flight press and send the carriage back where it belongs. */
+  const cancelHold = useCallback(() => {
     holdOrigin.current = null;
-    if (holdTimer.current != null) {
-      window.clearTimeout(holdTimer.current);
-      holdTimer.current = null;
-    }
-    animate(undoProgress, 0, { duration: 0.14 });
-  }, [undoProgress]);
+    if (!holdRun.current) return;
+    holdRun.current.stop();
+    holdRun.current = null;
+    animate(x, checked ? travelRef.current : 0, reduced ? S_REDUCED : S_REJECT);
+  }, [checked, reduced, x]);
 
-  // Press-and-hold to release. Linear, because it is a timer being read.
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!checked) return;
+  /**
+   * Press-and-hold. The carriage travels under your thumb for the duration, so
+   * the progress indicator and the mechanism are the same object, and letting
+   * go early visibly drops it back. Linear, because it is a timer being read.
+   *
+   * Available in every mode as the way to release a committed latch — tap mode
+   * additionally offers its one-tap undo for a few seconds.
+   */
+  const beginHold = (e: React.PointerEvent) => {
+    if (!checked && style !== "hold") return; // throw drags; tap commits on click
     holdOrigin.current = { x: e.clientX, y: e.clientY };
-    animate(undoProgress, 1, { duration: UNDO_MS / 1000, ease: "linear" });
-    holdTimer.current = window.setTimeout(() => {
-      undoProgress.set(0);
-      holdOrigin.current = null;
-      commit(false);
-    }, UNDO_MS);
+    const target = checked ? 0 : travelRef.current;
+    const ms = checked ? HOLD_RELEASE_MS : HOLD_MS;
+    holdRun.current = animate(x, target, {
+      duration: ms / 1000,
+      ease: "linear",
+      onComplete: () => {
+        holdRun.current = null;
+        holdOrigin.current = null;
+        commit(!checked);
+      },
+    });
   };
 
-  // Any real movement means the user is dragging — most importantly the
-  // vertical pull that opens the record, which must never silently un-commit.
+  // Any real movement means a swipe, not a press. Releasing the gesture here is
+  // what keeps surface navigation working from on top of the control.
   const onPointerMove = (e: React.PointerEvent) => {
     const o = holdOrigin.current;
     if (!o) return;
-    if (Math.hypot(e.clientX - o.x, e.clientY - o.y) > HOLD_SLOP) clearHold();
+    if (Math.hypot(e.clientX - o.x, e.clientY - o.y) > HOLD_SLOP) cancelHold();
   };
 
-  const onDragEnd = () => {
+  const onDragEnd = (_e: unknown, info: { velocity: { x: number } }) => {
     setDragging(false);
     const p = travelRef.current > 0 ? x.get() / travelRef.current : 0;
-    // Committed carriages can be thrown back; uncommitted ones must pass the arm point.
-    commit(checked ? p > RELEASE_BELOW : p >= ARM_AT);
+    if (checked) {
+      commit(p > RELEASE_BELOW);
+      return;
+    }
+    // A committed flick counts even if the carriage never got all the way.
+    commit(p >= THROW_ARM || info.velocity.x > THROW_VELOCITY);
   };
+
+  const undoOffered = checked && style === "tap" && undoUntil > Date.now();
 
   return (
     <div
@@ -180,44 +212,39 @@ export function Latch({
       aria-checked={checked}
       aria-label={label}
       tabIndex={0}
+      data-deck="off"
       onKeyDown={(e) => {
-        // e.repeat: holding Space auto-repeats and would toggle once per repeat,
-        // landing on whichever state the key-up happened to leave.
+        // e.repeat: holding Space auto-repeats and would toggle once per repeat.
         if ((e.key === " " || e.key === "Enter") && !e.repeat) {
           e.preventDefault();
           commit(!checked);
         }
       }}
       onClick={(e) => {
-        // VoiceOver / Switch Control / Full Keyboard Access activate by
-        // dispatching a synthetic click, which has detail === 0. A real finger
-        // tap has detail >= 1 and must stay inert (it gets the nudge instead),
-        // so this is the assistive path only — without it the control cannot be
+        // detail === 0 is VoiceOver / Switch Control / Full Keyboard Access
+        // synthesising an activation; without this the control cannot be
         // operated by assistive technology at all.
-        if (e.detail === 0) commit(!checked);
+        if (e.detail === 0) {
+          commit(!checked);
+          return;
+        }
+        if (style !== "tap") return;
+        if (!checked) commit(true);
+        else if (undoOffered) commit(false);
       }}
-      // The carriage drags sideways; the surface grid must not arm over it.
-      data-deck="off"
-      onPointerDown={onPointerDown}
+      onPointerDown={beginHold}
       onPointerMove={onPointerMove}
-      onPointerUp={clearHold}
-      onPointerLeave={clearHold}
-      onPointerCancel={clearHold}
+      onPointerUp={cancelHold}
+      onPointerLeave={cancelHold}
+      onPointerCancel={cancelHold}
       className="relative w-full select-none overflow-hidden rounded-md border border-line-soft bg-surface-2 outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
       /*
         touch-action: none, and it says what was already happening.
 
-        This read `pan-y` for a long time, which looks like "allow vertical
-        scrolling through me" — but touch-action intersects along the ancestor
-        chain, and the drag ancestor is `pan-x`. pan-y ∩ pan-x is empty, so the
-        browser was already handling nothing and every touch was arriving as
-        pointer events. That is precisely why both gestures work from this one
-        60px-tall element: the carriage drags sideways *and* a vertical swipe
-        from here still reaches the surface stack.
-
-        It worked for a reason nobody had written down, and the next person to
-        tidy `pan-y` into `pan-x` would have broken one of the two. `none`
-        behaves identically and is the honest declaration.
+        touch-action intersects along the ancestor chain and the drag ancestor
+        is pan-x, so pan-y here resolved to nothing and every touch already
+        arrived as pointer events. That is why both gestures work from this one
+        60px element. none behaves identically and is the honest declaration.
       */
       style={{ height: TRACK_H, touchAction: "none" }}
     >
@@ -241,8 +268,12 @@ export function Latch({
         {checked ? null : (
           <>
             {label}
-            {/* Without this the track reads as a label, not a mechanism. */}
-            <ChevronsRight className="h-3.5 w-3.5 text-ink-4" strokeWidth={2.5} />
+            {/* Say what this wants from the thumb, per mode. */}
+            {style === "throw" ? (
+              <ChevronsRight className="h-3.5 w-3.5 text-ink-4" strokeWidth={2.5} />
+            ) : (
+              <span className="text-ink-4">{style === "hold" ? "hold" : "tap"}</span>
+            )}
           </>
         )}
       </motion.span>
@@ -251,48 +282,37 @@ export function Latch({
         <motion.span
           aria-hidden
           // Left, not right: the carriage parks on the right, and a timestamp
-          // there just peeks out from behind it. Opacity rides the travel so
-          // it clears out of the way when the bolt is thrown back. The right
-          // bound keeps the text clear of the parked carriage.
+          // there just peeks out from behind it.
           style={{ opacity: receiptFade, right: CAR + PAD + 12 }}
           className="pointer-events-none absolute inset-y-0 left-6 flex items-center gap-2 overflow-hidden"
         >
-          {/* The label stays after the throw. It used to disappear, leaving
-              only a stamp — readable enough on the day screen, where the block
-              names the habit, but a backfilled day stacks four latches with no
-              stamps at all and every one of them just read "set". */}
           <span className="mono-xs truncate text-ink-2">{label}</span>
           {stampMin != null ? (
             <span className="mono-sm shrink-0 tabular-nums text-ink-3">
               {formatClock(stampMin)}
             </span>
           ) : null}
+          {undoOffered ? (
+            <span className="mono-xs shrink-0 text-warn">undo</span>
+          ) : null}
         </motion.span>
       ) : null}
 
-      {checked ? (
-        <motion.div
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-0 bg-bg/70"
-          style={{ left: undoWipe }}
-        />
-      ) : null}
-
       <motion.div
-        drag="x"
+        drag={style === "throw" ? "x" : false}
         dragConstraints={{ left: 0, right: travel }}
         dragElastic={0.04}
         dragMomentum={false}
         dragDirectionLock
         onDragStart={() => {
-          clearHold();
+          cancelHold();
           setDragging(true);
         }}
         onDragEnd={onDragEnd}
         onTap={() => {
-          if (checked || dragging) return;
-          // A poke wobbles. Keyframes need a tween — a spring with three
-          // keyframes resolves origin===target and plays nothing at all.
+          if (style !== "throw" || checked || dragging) return;
+          // A poke wobbles. Keyframes need a tween — a spring across three
+          // keyframes resolves origin === target and plays nothing.
           animate(x, [0, 9, 0], { duration: 0.34, ease: [0.34, 1.56, 0.64, 1] });
         }}
         // motion adds tabindex=0 to draggable elements; left alone that puts an
