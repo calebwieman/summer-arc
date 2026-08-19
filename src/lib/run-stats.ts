@@ -44,7 +44,7 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 export function runHistory(
   today: string,
   weeksBack = 8,
-  maxRuns = 14,
+  maxRuns = 10,
 ): RunHistory {
   const ix = buildLogIndex();
 
@@ -53,13 +53,18 @@ export function runHistory(
     const miles = log.runMiles ?? 0;
     if (!(miles > 0) || date > today) continue;
     const minutes = log.runMinutes ?? 0;
+    // One verdict for both fields: formatPace rejects nonsense (a 90 min/mi
+    // "run" is a typo, not a pace), and a point it rejects must not keep a
+    // numeric paceMin — that rendered a literal "null/mi" caption and pinned
+    // every honest dot to the top of the scale.
+    const pace = formatPace(miles, minutes);
     all.push({
       date,
       label: format(parseISO(date), "EEE M/d"),
       miles,
       minutes,
-      pace: formatPace(miles, minutes),
-      paceMin: miles > 0 && minutes > 0 ? minutes / miles : null,
+      pace,
+      paceMin: pace ? minutes / miles : null,
     });
   }
   all.sort((a, b) => a.date.localeCompare(b.date));

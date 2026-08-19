@@ -2,11 +2,12 @@
 
 import { useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { differenceInCalendarDays, eachDayOfInterval, format, parseISO, subDays } from "date-fns";
+import { differenceInCalendarDays, eachDayOfInterval, format, parseISO } from "date-fns";
 import { getHabits } from "@/lib/habits";
 import { buildLogIndex, stateOf, type LogIndex } from "@/lib/log-index";
 import { trainingBlockOn, trainingLabels } from "@/lib/schedule";
 import { SWEEP } from "@/lib/motion";
+import { weekDays } from "@/lib/week";
 import { RunTrends } from "./run-trends";
 
 /**
@@ -85,13 +86,12 @@ function build(today: string): { rows: Row[]; weekDone: number; weekPlanned: num
 
   for (const r of rows) r.rate = r.scheduled === 0 ? null : r.done / r.scheduled;
 
-  // The week in front of you, from the template: what it asked for and what
-  // has actually been thrown in the last seven days.
+  // This week, Monday-anchored — the same week the mileage bars below draw.
+  // It was a rolling seven days for a while, which put two definitions of
+  // "week" on one screen a hundred pixels apart.
   let weekDone = 0;
   let weekPlanned = 0;
-  const end = parseISO(today);
-  for (let i = 6; i >= 0; i--) {
-    const date = format(subDays(end, i), "yyyy-MM-dd");
+  for (const date of weekDays(today)) {
     if (!trainingBlockOn(date)) continue;
     weekPlanned += 1;
     if (training && ix.byDate.get(date)?.habits?.[training.id] === true) {
@@ -178,7 +178,7 @@ export function SessionsScreen({
       {/* The numbers the R sheet collects, drawn. Anchored to the foot so the
           session rows keep their rhythm; on a short viewport the pace half
           drops before anything else compresses. */}
-      <div className="mt-auto shrink-0 pt-4 pb-1">
+      <div className="mt-auto shrink-0 pt-3 pb-1">
         <RunTrends today={today} version={version} />
       </div>
     </div>

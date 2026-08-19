@@ -20,8 +20,8 @@ import { SWEEP } from "@/lib/motion";
  * anything, and none of them are painted on the chart to collide.
  */
 
-const COL_H = 56;
-const PACE_H = 48;
+const COL_H = 46;
+const PACE_H = 40;
 
 function Caption({ text }: { text: string }) {
   return (
@@ -43,9 +43,11 @@ function WeeklyMiles({
   weeks: WeekBar[];
   reduced: boolean | null;
 }) {
-  const [picked, setPicked] = useState<WeekBar | null>(null);
+  // Keyed by week start, not object identity: the arrays are rebuilt on every
+  // version bump and a stale object froze the caption with nothing highlighted.
+  const [picked, setPicked] = useState<string | null>(null);
   const peak = Math.max(1, ...weeks.map((w) => w.miles));
-  const shown = picked ?? weeks[weeks.length - 1];
+  const shown = weeks.find((w) => w.start === picked) ?? weeks[weeks.length - 1];
 
   return (
     <section aria-label="Weekly mileage, last eight weeks">
@@ -62,7 +64,7 @@ function WeeklyMiles({
               key={w.start}
               type="button"
               aria-label={`week of ${w.label}, ${w.miles} miles`}
-              onClick={() => setPicked(w)}
+              onClick={() => setPicked(w.start)}
               className="relative flex flex-1 flex-col items-stretch justify-end"
               style={{ height: COL_H }}
             >
@@ -84,7 +86,7 @@ function WeeklyMiles({
                     ease: SWEEP,
                   }}
                   className={`mx-auto w-[10px] rounded-pill ${
-                    w === shown ? "bg-ink" : "bg-ink/45"
+                    w.start === shown.start ? "bg-ink" : "bg-ink/45"
                   }`}
                 />
               )}
@@ -118,9 +120,9 @@ function PaceTrend({
   reduced: boolean | null;
 }) {
   const paced = runs.filter((r) => r.paceMin != null);
-  const [picked, setPicked] = useState<RunPoint | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
   if (paced.length === 0) return null;
-  const shown = picked ?? paced[paced.length - 1];
+  const shown = paced.find((r) => r.date === picked) ?? paced[paced.length - 1];
 
   // Faster at the top, the way every watch draws it. A degenerate range (every
   // run the same pace) sits mid-track rather than dividing by zero.
@@ -133,7 +135,7 @@ function PaceTrend({
     paced.length === 1 ? 50 : (i / (paced.length - 1)) * 100;
 
   return (
-    <section aria-label="Pace per run" className="drop-when-short">
+    <section aria-label="Pace per run" className="drop-when-mid">
       <div className="flex items-baseline justify-between">
         <h3 className="kicker">Pace</h3>
         <Caption
@@ -168,8 +170,8 @@ function PaceTrend({
             key={r.date}
             type="button"
             aria-label={`${r.label}, ${r.miles} miles at ${r.pace} per mile`}
-            onClick={() => setPicked(r)}
-            className="absolute flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+            onClick={() => setPicked(r.date)}
+            className="absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
             style={{
               left: `${xOf(i)}%`,
               top: yOf(r.paceMin as number),
@@ -178,7 +180,9 @@ function PaceTrend({
             <span
               aria-hidden
               className={`rounded-pill ${
-                r === shown ? "h-[7px] w-[7px] bg-ink" : "h-[5px] w-[5px] bg-ink/55"
+                r.date === shown.date
+                  ? "h-[7px] w-[7px] bg-ink"
+                  : "h-[5px] w-[5px] bg-ink/55"
               }`}
             />
           </button>
@@ -215,7 +219,7 @@ export function RunTrends({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <WeeklyMiles weeks={weeks} reduced={reduced} />
       <PaceTrend runs={runs} reduced={reduced} />
     </div>

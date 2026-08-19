@@ -96,10 +96,14 @@ interface LegacyLog {
 export function isLegacyLog(v: unknown): boolean {
   if (!v || typeof v !== "object") return false;
   const o = v as Record<string, unknown>;
+  // runMiles is NOT a marker: the modern DailyLog gained it too, and sniffing
+  // it classified this app's own backups as legacy — a restore then pushed
+  // every day through migration, which zeroes deep-work minutes, stamps and
+  // notes and transmutes run completions into training. Only fields the modern
+  // schema never had may sit in this list.
   if (
     "coldCalls" in o ||
     "top3Priorities" in o ||
-    "runMiles" in o ||
     "plungeMinutes" in o ||
     "mood" in o
   ) {
@@ -118,6 +122,10 @@ export function isLegacyBundle(b: unknown): boolean {
   if (!b || typeof b !== "object") return false;
   const o = b as Record<string, unknown>;
   if (o.schema === 1 || o.schema === 2) return true;
+  // A schema this app itself has written is never legacy — the day-sniff below
+  // is a heuristic for unstamped files and must not get a vote once the bundle
+  // declares a modern version.
+  if (typeof o.schema === "number" && o.schema >= 3) return false;
   if ("weekly" in o) return true;
   const daily = o.daily as Record<string, unknown> | undefined;
   if (daily && typeof daily === "object") {
@@ -148,6 +156,10 @@ const BUILTIN_IDS: HabitKey[] = [
   "training",
   "deepWork",
   "lightsOut",
+  // Unrouted on purpose — the old app's "run" habit IS training, so nothing
+  // sources the modern run and every migrated day carries noData for it
+  // instead of a fortnight of invented misses.
+  "run",
 ];
 
 /** A one or two character register code, unique against what is taken. */

@@ -357,6 +357,17 @@
   }
 
   /*
+    The sessions page runs the 852px floor to within a pixel, so its second
+    chart needs to stand down well before the 740 floor — at 830 and below the
+    pace half is the honest thing to lose first.
+  */
+  @media (max-height: 830px) {
+    .drop-when-mid {
+      display: none;
+    }
+  }
+
+  /*
     Bottom-aligned rails overflow at the top. A hard edge slices the oldest
     line in half and reads as a rendering fault; fading it reads as distance.
     The rail below the seat has the same problem at its own far edge — turn

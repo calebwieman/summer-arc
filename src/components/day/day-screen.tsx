@@ -1671,8 +1671,18 @@ export function DayScreen() {
   */
   const spinTimers = useRef<number[]>([]);
   const clearSpin = useCallback(() => {
+    if (spinTimers.current.length === 0) return;
     for (const t of spinTimers.current) window.clearTimeout(t);
     spinTimers.current = [];
+    /*
+      A cancelled flight must lower its own flags. The final timer was the only
+      other writer of scrubbing, so cancelling it — tap the same icon twice,
+      tap the block the wheel is passing, grab the surface mid-spin — left the
+      seat as its inert preview shell permanently: no latch, no fields, and
+      nothing else ever set it back.
+    */
+    setLive(false);
+    setScrubbing(false);
   }, []);
   useEffect(() => clearSpin, [clearSpin]);
   const spinTo = useCallback(
@@ -1699,6 +1709,7 @@ export function DayScreen() {
           haptic(3);
           land(idx);
           if (i === steps.length - 1) {
+            spinTimers.current = [];
             setLive(false);
             setScrubbing(false);
           }
@@ -1847,6 +1858,9 @@ export function DayScreen() {
         }}
         dragMomentum={false}
         onDragStart={() => {
+          // A spin still in flight would keep ticking under the drag and drop
+          // the live flag mid-gesture when its last step fired.
+          clearSpin();
           claimed.current = false;
           setLive(true);
         }}
@@ -1886,8 +1900,8 @@ export function DayScreen() {
             documented to keep under `none`. While a field is focused this falls
             back to the inherited `pan-x` and iOS gets whatever it wants: the
             grid is already disarmed over inputs, the stack's drag already
-            exempts them, and the register keeps its own `touch-none` regardless
-            so the scrub is unaffected mid-edit. touch-action is read at touch
+            exempts them, and the register is taps only now, so nothing else
+            depends on this element's value. touch-action is read at touch
             start and focus changes on tap, so the next touch sees the new value.
           */
           className={`relative h-full ${editing ? "" : "touch-none"}`}

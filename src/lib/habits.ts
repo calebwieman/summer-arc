@@ -1,4 +1,5 @@
 import type { BlockKind, Weekday } from "./schedule";
+import { todayISO } from "./clock";
 import { blocksForDate, weekdayOf } from "./schedule";
 
 /**
@@ -41,6 +42,12 @@ export interface HabitDef {
    */
   days: Weekday[];
   anchor?: HabitAnchor;
+  /**
+   * The habit does not exist before this date. Stamped when a new built-in is
+   * reconciled into an established registry, so weeks of history are not
+   * rescored as misses for a letter that was not there.
+   */
+  since?: string;
   order: number;
   /**
    * Kept out of the day's done/total tally.
@@ -104,6 +111,10 @@ export const BUILT_INS: HabitDef[] = [
     label: "Run",
     code: "R",
     icon: "run",
+    // The letter's birthday. A fresh registry gets the built-ins directly, so
+    // the reconcile stamp above never runs for it — without this, logs that
+    // predate the feature would score as run misses.
+    since: "2026-08-19",
     days: ALL_DAYS,
     /*
       No anchor, deliberately. Every other letter belongs to a block and is
@@ -170,7 +181,10 @@ export function getAllHabits(): HabitDef[] {
     let changed = false;
     for (const b of BUILT_INS) {
       if (!have.has(b.id)) {
-        defs.push({ ...b });
+        // Born today, as far as this registry is concerned: without the stamp
+        // every day since the first log rescored as a miss for a letter that
+        // did not exist yet.
+        defs.push({ ...b, since: b.since ?? todayISO() });
         changed = true;
       }
     }
@@ -257,6 +271,8 @@ export function anchorIndexFor(habit: HabitDef, date: string): number {
  */
 export function isHabitScheduledOn(habit: HabitDef, date: string): boolean {
   if (habit.archived) return false;
+  // Before a habit existed there is nothing to have missed.
+  if (habit.since && date < habit.since) return false;
   if (habit.anchor) return anchorIndexFor(habit, date) >= 0;
   return habit.days.includes(weekdayOf(date));
 }
