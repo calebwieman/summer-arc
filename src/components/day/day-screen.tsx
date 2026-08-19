@@ -1472,15 +1472,40 @@ export function DayScreen() {
     one gesture away from a live instrument. It costs one line here and one in
     the key handler.
   */
+  /*
+    One step of memory, and only one, so that a vertical gesture is its own
+    inverse.
+
+    HOME-snapping alone made the undo gesture not the undo. The rows are 4, 2
+    and 1 columns wide, so from `system` [0,3] a swipe down clamps to row 1 and
+    HOME-snaps to `record`; swiping straight back up HOME-snaps row 0 to `day`.
+    A gesture and its exact mirror left you two surfaces from where you started,
+    and no amount of practice fixes that because the rule itself is the problem.
+    Same for `sessions` -> down -> `history` -> up -> `record`.
+
+    Full per-row memory would fix it but breaks the invariant the HOME snap was
+    protecting: that a row always opens at a known column, so the map stays
+    holdable. So this remembers exactly the row it just left. Return to it as
+    the very next row change and you land where you were; arrive from anywhere
+    else and you get HOME, unchanged.
+  */
+  const leftFrom = useRef<{ row: number; col: number } | null>(null);
+
   const goRow = useCallback(
     (next: number) => {
       const r = clamp(next, GRID.length - 1);
       if (r === row) return;
+      const back = leftFrom.current;
+      leftFrom.current = { row, col };
       setMove({ axis: "y", dir: r > row ? 1 : -1 });
       setRow(r);
-      setCol(HOME[r]);
+      setCol(
+        back && back.row === r
+          ? clamp(back.col, GRID[r].length - 1)
+          : HOME[r],
+      );
     },
-    [row],
+    [row, col],
   );
 
   const goCol = useCallback(
