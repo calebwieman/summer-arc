@@ -13,6 +13,7 @@ import {
   migrateLegacyLog,
   planMigration,
 } from "./migrate";
+import { routineEdited, routineOverrides, setRoutineAll } from "./schedule";
 import { blocksForDate } from "./schedule";
 import { getPrefs, setPrefs, type Prefs } from "./prefs";
 import { getTodayString } from "./today";
@@ -215,13 +216,18 @@ export interface BackupBundle {
    * and when the last backup was taken. Small things, and every restore before
    * this dropped all of them on the floor. Older files still read — `importBackup`
    * refuses only on a missing `daily` and ignores what it does not recognise.
+   *
+   * 6 adds `routine`: the per-weekday schedule overrides. An edited semester
+   * timetable is exactly the thing a device migration must not lose.
    */
-  schema: 3 | 4 | 5;
+  schema: 3 | 4 | 5 | 6;
   exportedAt: string;
   /** The registry, retired habits included, so history stays readable. */
   habits?: HabitDef[];
   /** Everything that is a setting rather than a habit or a day. */
   prefs?: Prefs;
+  /** Per-weekday schedule overrides, keyed "0".."6". */
+  routine?: Record<string, unknown>;
   daily: Record<string, DailyLog>;
 }
 
@@ -233,10 +239,11 @@ export function exportBackup(): BackupBundle {
   // rather than by the button — every path out of the app goes through this.
   const prefs = setPrefs({ lastBackupAt: exportedAt });
   return {
-    schema: 5,
+    schema: 6,
     exportedAt,
     habits: getAllHabits(),
     prefs,
+    routine: routineOverrides(),
     daily,
   };
 }
@@ -284,6 +291,15 @@ export function importBackup(
       saveHabits([...existing, ...fresh]);
       habitsAdded.push(...fresh.map((h) => h.label ?? h.id));
     }
+  }
+
+  // Existing wins, exactly as with habits: a device that has already shaped
+  // its week keeps it; a fresh device takes the file's.
+  if (!legacy && b.routine && typeof b.routine === "object") {
+    const hasOwn = ([0, 1, 2, 3, 4, 5, 6] as const).some((d) =>
+      routineEdited(d),
+    );
+    if (!hasOwn) setRoutineAll(b.routine);
   }
 
   let count = 0;

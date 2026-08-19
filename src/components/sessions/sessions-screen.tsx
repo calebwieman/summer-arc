@@ -136,7 +136,7 @@ export function SessionsScreen({
       </p>
 
       <div className="mt-4 divide-y divide-line-soft/60">
-        {rows.map((r, i) => (
+        {rows.slice(0, 6).map((r, i) => (
           <motion.button
             key={r.label}
             type="button"
@@ -173,6 +173,11 @@ export function SessionsScreen({
             </span>
           </motion.button>
         ))}
+        {rows.length > 6 ? (
+          <p className="mono-xs py-2 text-center text-ink-4">
+            +{rows.length - 6} more session types
+          </p>
+        ) : null}
       </div>
 
       {/* The numbers the R sheet collects, drawn. Anchored to the foot so the

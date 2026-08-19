@@ -19,6 +19,7 @@ import { buildHabitSeries } from "@/lib/series";
 import { getDailyLog, lastTrainingNote, saveDailyLog } from "@/lib/storage";
 import { formatHeaderDate, makeEmptyLog } from "@/lib/today";
 import { HABITS_CHANGED, getHabits, type HabitDef } from "@/lib/habits";
+import { ROUTINE_CHANGED } from "@/lib/schedule";
 import { habitTally } from "@/lib/day";
 import { formatClock, formatDuration, formatTime, formatWatch } from "@/lib/clock";
 import { tomorrowLine, trainingLine } from "@/lib/week";
@@ -1544,11 +1545,21 @@ export function DayScreen() {
     if (page !== "day") headingRef.current?.focus();
   }, [page]);
 
-  // Editing habits in the settings sheet must redraw the spine underneath it.
+  // Editing habits or the routine in the settings sheets must redraw the
+  // spine underneath them. A fresh habits array is enough for both: the day
+  // model is rebuilt whenever it changes, and blocksForDate reads the routine
+  // live on that rebuild.
   useEffect(() => {
-    const reload = () => setHabits(getHabits());
+    const reload = () => {
+      setHabits(getHabits());
+      setDataVersion((v) => v + 1);
+    };
     window.addEventListener(HABITS_CHANGED, reload);
-    return () => window.removeEventListener(HABITS_CHANGED, reload);
+    window.addEventListener(ROUTINE_CHANGED, reload);
+    return () => {
+      window.removeEventListener(HABITS_CHANGED, reload);
+      window.removeEventListener(ROUTINE_CHANGED, reload);
+    };
   }, []);
 
   const habitById = useMemo(
@@ -1628,8 +1639,12 @@ export function DayScreen() {
       if (returnTimer.current) window.clearTimeout(returnTimer.current);
       returnTimer.current = window.setTimeout(
         () => {
+          // The trip back is the same journey as the trip out: the wheel
+          // rolls home through the blocks between, rather than cutting. Under
+          // reduced motion spinHome degrades to the straight land inside
+          // spinTo itself.
           restoring.current = true;
-          setSelected(null);
+          spinHome.current();
         },
         reduced ? 200 : 620,
       );
@@ -1670,6 +1685,8 @@ export function DayScreen() {
     would re-rasterise a column of blurred rows.
   */
   const spinTimers = useRef<number[]>([]);
+  /** Always the current-day way home; refs because setHabit closes early. */
+  const spinHome = useRef<() => void>(() => {});
   const clearSpin = useCallback(() => {
     if (spinTimers.current.length === 0) return;
     for (const t of spinTimers.current) window.clearTimeout(t);
@@ -1719,6 +1736,7 @@ export function DayScreen() {
     },
     [focusIndex, day, reduced, clearSpin],
   );
+  spinHome.current = () => spinTo(day.focusIndex);
   const showFocus =
     focus &&
     (recalled || !(day.state === "after" && day.graceIndex < 0)) &&
@@ -2031,7 +2049,10 @@ export function DayScreen() {
                         onPatch={patch}
                         onRecoil={fireRecoil}
                         recalled={recalled}
-                        onReturn={() => setSelected(null)}
+                        onReturn={() => {
+                          restoring.current = true;
+                          spinHome.current();
+                        }}
                         dir={dir}
                         reduced={reduced}
                       />

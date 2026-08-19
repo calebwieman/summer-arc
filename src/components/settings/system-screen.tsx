@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Archive } from "@/components/review/archive";
+import { RoutineSection } from "./routine-editor";
 import { useTheme, type ThemePref } from "@/components/theme/theme-provider";
 import { haptic } from "@/lib/haptics";
 import { TICK } from "@/lib/motion";
@@ -110,6 +111,7 @@ export function SystemScreen() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-7">
       <Appearance />
+      <RoutineSection />
       <Notifications />
       <Archive />
       {/* Which build is actually running, readable from the phone. It is the
