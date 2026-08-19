@@ -1309,7 +1309,11 @@ function FocusBlock({
           {b.fields.includes("trainingNote") ? (
             <div className="space-y-2">
               <NoteField
-                label="Session"
+                // In the training block this is the session you are in; at Wind
+                // Down it is the run you are writing up at the end of the day.
+                label={
+                  b.block.kind === "training" ? "Session" : "Run — log it now"
+                }
                 placeholder="6 × 800 @ 5:42"
                 value={log?.trainingNote ?? ""}
                 onChange={(v) => onPatch({ trainingNote: v })}
