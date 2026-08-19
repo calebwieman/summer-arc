@@ -13,7 +13,6 @@ import { ChevronsRight } from "lucide-react";
 import { iconFor } from "./habit-icons";
 import { HAPTIC_COMMIT, HAPTIC_RELEASE, haptic } from "@/lib/haptics";
 import { formatClock } from "@/lib/clock";
-import { useCommitStyle } from "@/lib/commit-style";
 import type { HabitKey } from "@/lib/types";
 
 const TRACK_H = 60;
@@ -34,9 +33,6 @@ const HOLD_MS = 380;
 const HOLD_RELEASE_MS = 560;
 /** Movement beyond this is a swipe, not a press — hand it back to navigation. */
 const HOLD_SLOP = 10;
-
-/** TAP: how long the one-tap undo stays offered. */
-const UNDO_WINDOW_MS = 6000;
 
 const S_COMMIT = { type: "spring", stiffness: 640, damping: 40, mass: 1.1 } as const;
 const S_REJECT = { type: "spring", stiffness: 380, damping: 26, mass: 1.2 } as const;
@@ -59,13 +55,12 @@ interface LatchProps {
 }
 
 /**
- * One control, three gestures, chosen in Settings.
+ * Slide it across. One gesture, no preference, no thinking about it.
  *
- * The drag was the original answer — deliberate, physical, hard to fire by
- * accident. It became clunky once the app went swipe-driven end to end: a
- * horizontal drag inside the content competes with the gesture that moves
- * between surfaces, and it asks for most of the track width on top of that.
- * Rather than guess at a single replacement, all three live here.
+ * Hold and tap were offered as alternatives for a while; a control that could
+ * be any of three things is a control you have to think about, and the clunk
+ * was never in this gesture anyway. Press-and-hold survives only as the way to
+ * release a thrown latch.
  */
 export function Latch({
   habit,
@@ -77,13 +72,11 @@ export function Latch({
   onRecoil,
 }: LatchProps) {
   const reduced = useReducedMotion();
-  const [style] = useCommitStyle();
   const trackRef = useRef<HTMLDivElement>(null);
   const travelRef = useRef(0);
   const [travel, setTravel] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [armed, setArmed] = useState(false);
-  const [undoUntil, setUndoUntil] = useState(0);
   const x = useMotionValue(0);
   const holdRun = useRef<{ stop: () => void } | null>(null);
   const holdOrigin = useRef<{ x: number; y: number } | null>(null);
@@ -145,10 +138,8 @@ export function Latch({
       haptic(next ? HAPTIC_COMMIT : HAPTIC_RELEASE);
       if (next) onRecoil?.();
       onChange(next);
-      // The one-tap undo is only offered in tap mode, and only just afterwards.
-      setUndoUntil(next && style === "tap" ? Date.now() + UNDO_WINDOW_MS : 0);
     },
-    [checked, onChange, onRecoil, reduced, x, style],
+    [checked, onChange, onRecoil, reduced, x],
   );
 
   /** Abandon an in-flight press and send the carriage back where it belongs. */
@@ -169,7 +160,8 @@ export function Latch({
    * additionally offers its one-tap undo for a few seconds.
    */
   const beginHold = (e: React.PointerEvent) => {
-    if (!checked && style !== "hold") return; // throw drags; tap commits on click
+    // Only ever to release. Committing is the slide, and nothing else.
+    if (!checked) return;
     holdOrigin.current = { x: e.clientX, y: e.clientY };
     const target = checked ? 0 : travelRef.current;
     const ms = checked ? HOLD_RELEASE_MS : HOLD_MS;
@@ -203,8 +195,6 @@ export function Latch({
     commit(p >= THROW_ARM || info.velocity.x > THROW_VELOCITY);
   };
 
-  const undoOffered = checked && style === "tap" && undoUntil > Date.now();
-
   return (
     <div
       ref={trackRef}
@@ -224,13 +214,7 @@ export function Latch({
         // detail === 0 is VoiceOver / Switch Control / Full Keyboard Access
         // synthesising an activation; without this the control cannot be
         // operated by assistive technology at all.
-        if (e.detail === 0) {
-          commit(!checked);
-          return;
-        }
-        if (style !== "tap") return;
-        if (!checked) commit(true);
-        else if (undoOffered) commit(false);
+        if (e.detail === 0) commit(!checked);
       }}
       onPointerDown={beginHold}
       onPointerMove={onPointerMove}
@@ -268,12 +252,8 @@ export function Latch({
         {checked ? null : (
           <>
             {label}
-            {/* Say what this wants from the thumb, per mode. */}
-            {style === "throw" ? (
-              <ChevronsRight className="h-3.5 w-3.5 text-ink-4" strokeWidth={2.5} />
-            ) : (
-              <span className="text-ink-4">{style === "hold" ? "hold" : "tap"}</span>
-            )}
+            {/* Without this the track reads as a label, not a mechanism. */}
+            <ChevronsRight className="h-3.5 w-3.5 text-ink-4" strokeWidth={2.5} />
           </>
         )}
       </motion.span>
@@ -292,14 +272,11 @@ export function Latch({
               {formatClock(stampMin)}
             </span>
           ) : null}
-          {undoOffered ? (
-            <span className="mono-xs shrink-0 text-warn">undo</span>
-          ) : null}
         </motion.span>
       ) : null}
 
       <motion.div
-        drag={style === "throw" ? "x" : false}
+        drag="x"
         dragConstraints={{ left: 0, right: travel }}
         dragElastic={0.04}
         dragMomentum={false}
@@ -310,7 +287,7 @@ export function Latch({
         }}
         onDragEnd={onDragEnd}
         onTap={() => {
-          if (style !== "throw" || checked || dragging) return;
+          if (checked || dragging) return;
           // A poke wobbles. Keyframes need a tween — a spring across three
           // keyframes resolves origin === target and plays nothing.
           animate(x, [0, 9, 0], { duration: 0.34, ease: [0.34, 1.56, 0.64, 1] });

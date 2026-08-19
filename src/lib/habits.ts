@@ -43,6 +43,15 @@ export interface HabitDef {
   anchor?: HabitAnchor;
   order: number;
   /**
+   * Kept out of the day's done/total tally.
+   *
+   * For a habit that is real and worth a letter but is not one of the day's
+   * standing commitments — the run, which happens when it happens and is
+   * written up at night. Counting it would make the tally read 4/6 on a day
+   * that was actually complete. It still scores in the record.
+   */
+  offSummary?: boolean;
+  /**
    * Retired rather than deleted, so the history it already wrote stays
    * readable and stays out of today's scoring.
    */
@@ -89,13 +98,28 @@ export const BUILT_INS: HabitDef[] = [
     order: 2,
   },
   {
+    id: "run",
+    label: "Run",
+    code: "R",
+    icon: "run",
+    days: ALL_DAYS,
+    /*
+      No anchor, deliberately. Every other letter belongs to a block and is
+      thrown inside it; this one belongs to no hour. The run happens when it
+      happens and gets written up at the end of the day, so it is a letter you
+      scrub to rather than a slot you arrive at.
+    */
+    offSummary: true,
+    order: 3,
+  },
+  {
     id: "deepWork",
     label: "Deep Work",
     code: "D",
     icon: "target",
     days: ALL_DAYS,
     anchor: { labels: ["Deep Work"] },
-    order: 3,
+    order: 4,
   },
   {
     id: "lightsOut",
@@ -104,7 +128,7 @@ export const BUILT_INS: HabitDef[] = [
     icon: "moon",
     days: ALL_DAYS,
     anchor: { labels: ["Wind Down"] },
-    order: 4,
+    order: 5,
   },
 ];
 

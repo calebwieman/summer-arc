@@ -204,9 +204,18 @@ function rise(order: number, reduced: boolean | null, first = true) {
  * tilt opens a gap under every row and the stack reads as slats, not a
  * surface. It approaches the ceiling rather than hitting it — see `pose`.
  */
-const WHEEL_STEP = 12;
-const WHEEL_MAX = 58;
-const WHEEL_PULL = 44;
+/*
+  Flattened, on the report that scrubbing the register felt bad.
+
+  The drum was 58 degrees deep with 12 degrees of tip per row. Scrubbing moves
+  every row at once, so at that depth a single notch swung fifteen rows through
+  a large arc, each re-rasterising its own blur — the column heaved rather than
+  advanced. The curve is still there, it just reads as a gentle bow now instead
+  of a barrel, and one notch moves the eye about a third as far.
+*/
+const WHEEL_STEP = 5;
+const WHEEL_MAX = 24;
+const WHEEL_PULL = 18;
 /** How fast the foreshortening approaches its ceiling. Larger = later. */
 const WHEEL_DECAY = 6.6;
 
@@ -250,8 +259,8 @@ function pose(d: number, side: Side, reduced: boolean | null, live = false) {
     // bottom of an upcoming one does.
     rotateX: -side * tip,
     y: -side * pull,
-    scale: Math.max(0.86, 1 - d * 0.012),
-    opacity: Math.max(0.42, 1 - d * 0.055),
+    scale: Math.max(0.93, 1 - d * 0.006),
+    opacity: Math.max(0.55, 1 - d * 0.038),
     /*
       The rim goes soft. Chosen deliberately over a flatter, more legible
       curve — the far end of the day is context, and the seat is the work.

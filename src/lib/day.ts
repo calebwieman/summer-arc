@@ -56,6 +56,8 @@ export interface DayModel {
    * must not have vanished. -1 when nothing is being held.
    */
   graceIndex: number;
+  /** Scheduled today but kept out of the done/total tally. */
+  offSummary: HabitKey[];
   /**
    * Habits scheduled today that no block owns — a user habit with no anchor.
    * They have no place in the spine, so they are committed from a sheet opened
@@ -137,9 +139,11 @@ export function buildDay(
   const byBlock = new Map<number, HabitKey[]>();
   const floating: HabitKey[] = [];
   const scheduled: HabitKey[] = [];
+  const offSummary: HabitKey[] = [];
   for (const h of habits) {
     if (!isHabitScheduledOn(h, date)) continue;
     scheduled.push(h.id);
+    if (h.offSummary) offSummary.push(h.id);
     const idx = h.anchor ? anchorIndexFor(h, date) : -1;
     if (idx >= 0) {
       const cur = byBlock.get(idx);
@@ -231,6 +235,7 @@ export function buildDay(
     state,
     gapRemaining,
     graceIndex,
+    offSummary,
     floating,
     scheduled,
   };
@@ -246,8 +251,12 @@ export function habitTally(
   day: DayModel,
   log: DailyLog | null,
 ): { done: number; total: number } {
+  // The run is real but is not one of the day's standing commitments, so it
+  // stays out of done/total. Counting it would read 4/6 on a complete day.
+  const skip = new Set(day.offSummary);
+  const counted = day.scheduled.filter((k) => !skip.has(k));
   return {
-    done: day.scheduled.filter((k) => log?.habits?.[k]).length,
-    total: day.scheduled.length,
+    done: counted.filter((k) => log?.habits?.[k]).length,
+    total: counted.length,
   };
 }
