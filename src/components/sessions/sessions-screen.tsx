@@ -7,6 +7,7 @@ import { getHabits } from "@/lib/habits";
 import { buildLogIndex, stateOf, type LogIndex } from "@/lib/log-index";
 import { trainingBlockOn, trainingLabels } from "@/lib/schedule";
 import { SWEEP } from "@/lib/motion";
+import { RunTrends } from "./run-trends";
 
 /**
  * Training, session by session.
@@ -172,6 +173,13 @@ export function SessionsScreen({
             </span>
           </motion.button>
         ))}
+      </div>
+
+      {/* The numbers the R sheet collects, drawn. Anchored to the foot so the
+          session rows keep their rhythm; on a short viewport the pace half
+          drops before anything else compresses. */}
+      <div className="mt-auto shrink-0 pt-4 pb-1">
+        <RunTrends today={today} version={version} />
       </div>
     </div>
   );

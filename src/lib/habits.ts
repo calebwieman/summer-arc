@@ -91,7 +91,9 @@ export const BUILT_INS: HabitDef[] = [
     id: "training",
     label: "Training",
     code: "T",
-    icon: "run",
+    // The dumbbell. Training shared footprints with the run for a week, and
+    // two identical silhouettes in a six-icon register is a bug.
+    icon: "lift",
     days: ALL_DAYS,
     // Kind, not label: every session in the Hyrox week is this one habit.
     anchor: { kind: "training" },
@@ -153,9 +155,40 @@ export function getAllHabits(): HabitDef[] {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return BUILT_INS;
     const defs = parsed.filter(isDef);
-    return defs.length > 0
-      ? [...defs].sort((a, b) => a.order - b.order)
-      : BUILT_INS;
+    if (defs.length === 0) return BUILT_INS;
+
+    /*
+      Reconcile the built-ins into a stored registry.
+
+      Stored defs used to shadow BUILT_INS entirely, so a registry saved before
+      a built-in existed could never receive it — the Run letter simply never
+      appeared for anyone who had ever edited a habit. Archiving still wins: a
+      retired built-in is present-but-archived, so the merge cannot resurrect
+      it.
+    */
+    const have = new Set(defs.map((d) => d.id));
+    let changed = false;
+    for (const b of BUILT_INS) {
+      if (!have.has(b.id)) {
+        defs.push({ ...b });
+        changed = true;
+      }
+    }
+
+    /*
+      One-time normalisation: a stored training that still carries the old
+      footprints default moves to the dumbbell, now that the run owns
+      footprints. A hand-picked icon is anything else, and is left alone.
+    */
+    for (const d of defs) {
+      if (d.id === "training" && d.icon === "run") {
+        d.icon = "lift";
+        changed = true;
+      }
+    }
+
+    if (changed) window.localStorage.setItem(KEY, JSON.stringify(defs));
+    return [...defs].sort((a, b) => a.order - b.order);
   } catch {
     return BUILT_INS;
   }
