@@ -802,7 +802,6 @@ function RegisterInner({
   focusIndex,
   onRecall,
   onFloating,
-  onLive,
 }: {
   day: DayModel;
   log: DailyLog | null;
@@ -812,12 +811,7 @@ function RegisterInner({
   onRecall: (blockIndex: number) => void;
   /** A habit with no block of its own — committed in a sheet instead. */
   onFloating: (id: HabitKey) => void;
-  /** Raised while a scrub is running, so the wheel can drop its stagger. */
-  onLive: (active: boolean) => void;
 }) {
-  // Rebuilt only when the day model actually changes, not on every render the
-  // gesture causes — `pick` closes over these, so an unstable identity also
-  // re-created the callback and every handler on the row.
   const { blockOf, endedOf, floating } = useMemo(() => {
     const b = new Map<HabitKey, number>();
     const e = new Map<HabitKey, boolean>();
@@ -831,241 +825,108 @@ function RegisterInner({
   }, [day]);
   const reduced = useReducedMotion();
   /*
-    Where the wheel is parked. One marker, not a flag per letter — two habits
+    Where the wheel is parked. One marker, not a flag per glyph — two habits
     can share a block, and two elements sharing a layoutId is how you get
     Motion animating a marker to a place it is also leaving.
   */
   const seatedId = habits.find((h) => blockOf.get(h.id) === focusIndex)?.id;
 
   /*
-    Scrub. Press anywhere on the register and slide sideways: the glyph nearest
-    the finger becomes the focused block, so the end of the day is one
-    continuous gesture instead of tap, throw, tap, throw.
+    The marker answers the tap before the wheel does.
 
-    Selection is by nearest centre, not by what is under the point. The event
-    target is no use — a touch pointer is implicitly captured by whatever took
-    the pointerdown, so it names the first glyph for the whole drag — and
-    point hit-testing drops the gaps between glyphs, which made the row stutter
-    and swallowed the first letter outright, since the gesture only engages
-    after ten pixels and that is already past the letter you started on.
+    During a spin the seat passes through blocks that own no habit — Lunch,
+    Breakfast — so a marker driven purely by the seated block blinks out for
+    the whole flight and pops in at the end. On a tap it glides straight to the
+    tapped icon instead, on the same layout spring, and the wheel arrives
+    underneath it; once the seat catches up the optimistic state dissolves
+    without a pixel moving. The timeout is the escape hatch for a spin that
+    never lands where the tap said (the user grabbed the wheel mid-flight).
   */
-  const rowRef = useRef<HTMLDivElement>(null);
-  const marks = useRef<{ id: string; cx: number }[]>([]);
-  const scrubbing = useRef(false);
-  const scrubbed = useRef(false);
-  /** The cone test has run for this gesture; its verdict stands. */
-  const decided = useRef(false);
-  const startAt = useRef<{ x: number; y: number } | null>(null);
-  const lastPicked = useRef<string | null>(null);
-
-  /** A floating letter the slide passed over, opened only once the finger lifts. */
-  const pendingFloat = useRef<HabitKey | null>(null);
-
-  const pick = useCallback(
-    (id: HabitKey, live: boolean) => {
-      if (id === lastPicked.current) return;
-      const idx = blockOf.get(id);
-      const isFloating = floating.has(id);
-      // Not scheduled today: nothing to open, and skipping it keeps the slide
-      // continuous rather than stalling on a dead letter.
-      if (idx == null && !isFloating) return;
-      lastPicked.current = id;
-      haptic(6);
-
-      if (idx != null) {
-        // Anchored: recall its block. Non-modal, so the slide runs straight
-        // through it and you can keep going.
-        pendingFloat.current = null;
-        onRecall(idx);
-        return;
-      }
-
-      /*
-        Floating letters have no block to seat, and their sheet is modal — so
-        opening it the instant the finger crosses the letter tore the slide in
-        half. Run is floating, which is exactly when this bites.
-
-        Mid-slide it is only marked. The sheet opens on release, and only if
-        the finger came to rest here, so passing over Run on the way to Lights
-        Out costs nothing and stopping on Run still opens it.
-      */
-      if (live) pendingFloat.current = id;
-      else onFloating(id);
-    },
-    [blockOf, floating, onRecall, onFloating],
-  );
-
-  /** Whichever glyph centre the finger is closest to, gaps included. */
-  const nearest = (x: number) => {
-    let best: string | undefined;
-    let bestD = Infinity;
-    for (const m of marks.current) {
-      const d = Math.abs(m.cx - x);
-      if (d < bestD) {
-        bestD = d;
-        best = m.id;
-      }
+  const [pending, setPending] = useState<HabitKey | null>(null);
+  useEffect(() => {
+    if (!pending) return;
+    if (seatedId === pending) {
+      setPending(null);
+      return;
     }
-    return best;
-  };
+    const t = window.setTimeout(() => setPending(null), 900);
+    return () => window.clearTimeout(t);
+  }, [pending, seatedId]);
+  const markerId = pending ?? seatedId;
 
+  /*
+    Taps, not a scrub.
+
+    The slide picked whatever the finger crossed, which was fine for anchored
+    letters and wrong for floating ones, and it forced this row to own
+    horizontal touch outright — the surface gesture was dead across the whole
+    bottom of the screen. Six spread-out 44px icons do the same job without
+    owning anything, and the wheel spinning to the tapped block carries the
+    continuity the slide used to fake.
+  */
   return (
-    <div
-      /*
-        touch-none, and it is load-bearing. The drag ancestor is marked
-        touch-action: pan-x, so the browser owns horizontal gestures — and the
-        moment a scrub grew past a few pixels it claimed the gesture and fired
-        pointercancel, killing the event stream after exactly one move. Taking
-        horizontal touch outright here is what lets the slide run; the vertical
-        stack swipe still works because Motion drags from pointer events, which
-        keep flowing.
-      */
-      /*
-        data-deck="off": this row owns horizontal touch, so the surface grid
-        must not arm over it. A DOM-ancestry test rather than a coordinate one,
-        so it survives every future layout change and needs no coordination
-        between the two consumers.
-      */
-      data-deck="off"
-      className="flex touch-none items-center justify-center px-5"
-      onPointerDown={(e) => {
-        // The row cannot reflow mid-gesture, so one read at the top is enough.
-        marks.current = [
-          ...(rowRef.current?.querySelectorAll<HTMLElement>("[data-habit]") ??
-            []),
-        ].map((el) => {
-          const r = el.getBoundingClientRect();
-          return { id: el.dataset.habit as string, cx: r.x + r.width / 2 };
-        });
-        startAt.current = { x: e.clientX, y: e.clientY };
-        scrubbing.current = false;
-        scrubbed.current = false;
-        decided.current = false;
-        lastPicked.current = null;
-      }}
-      onPointerMove={(e) => {
-        const s = startAt.current;
-        if (!s) return;
-        const dx = e.clientX - s.x;
-        const dy = e.clientY - s.y;
-
-        /*
-          Decide once, on a forgiving cone, and then stand by it.
-
-          The old test — |dx| ≥ 10 and |dx| > |dy| — was re-evaluated on every
-          single move until it passed, which meant a gesture that began with
-          any vertical drift could never engage the scrub, not even after it
-          straightened out. A 110×110 diagonal from the first letter moved
-          nothing at all: too vertical for the register, and the register had
-          already swallowed the touch. Mouse drags are straight; thumbs are
-          not, and this is a control you use with a thumb at 22:00.
-
-          So: wait for ten pixels of travel in any direction, then ask once
-          whether this is more sideways than not, on a ±59° cone rather than a
-          45° one. A verdict of "no" hands the gesture to the surface stack for
-          the rest of its life, which is what makes a vertical swipe that
-          starts on the register still reach the record.
-        */
-        if (!decided.current) {
-          if (Math.hypot(dx, dy) < 10) return;
-          decided.current = true;
-          scrubbing.current = Math.abs(dx) > Math.abs(dy) * 0.6;
-          if (scrubbing.current) {
-            scrubbed.current = true;
-            onLive(true);
-          }
-        }
-        if (!scrubbing.current) return;
-        const id = nearest(e.clientX);
-        if (id) pick(id, true);
-      }}
-      onPointerUp={() => {
-        startAt.current = null;
-        if (scrubbing.current) onLive(false);
-        scrubbing.current = false;
-        // The slide ended on a floating letter, so now it may open.
-        const f = pendingFloat.current;
-        pendingFloat.current = null;
-        if (f) onFloating(f);
-      }}
-      onPointerCancel={() => {
-        startAt.current = null;
-        if (scrubbing.current) onLive(false);
-        scrubbing.current = false;
-        // Cancelled, not released: nothing was chosen, so open nothing.
-        pendingFloat.current = null;
-      }}
-    >
-      {/* Centred, and no longer a scroll box: scrubbing owns the horizontal
-          gesture here, so a scroller would only fight it. */}
-      <div ref={rowRef} className="flex gap-2 overflow-hidden">
-        {habits.map((h) => {
-          const k = h.id;
-          const idx = blockOf.get(k);
-          const isFloating = floating.has(k);
-          const scheduled = idx != null || isFloating;
-          const done = log?.habits?.[k] === true;
-          return (
-            <button
-              key={k}
-              type="button"
-              data-habit={k}
-              title={h.label}
-              // aria-disabled, not disabled: the letter still reads and still
-              // takes a press, it simply has no block to open.
-              aria-disabled={!scheduled}
-              aria-label={`${h.label} — ${
-                !scheduled
-                  ? "not scheduled today"
-                  : done
-                    ? "done, open to change"
-                    : "not logged, open to log"
-              }`}
-              onClick={() => {
-                // The slide already selected as it went.
-                if (scrubbed.current) return;
-                pick(k, false);
-              }}
-              className="relative flex min-h-11 items-center px-1"
-            >
-              {/* The marker is one element that moves between letters rather
-                  than one per letter that fades — a shared layoutId is what
-                  makes it slide under the finger instead of blinking across. */}
-              {k === seatedId ? (
-                <motion.span
-                  /*
-                    No shared element under reduced motion. Motion drops the
-                    transform half of a layout animation there, so a shared
-                    layoutId degrades to a jump-cut with no crossfade — worse
-                    than two elements fading independently, which is what this
-                    becomes instead.
-                  */
-                  layoutId={reduced ? undefined : "register-seat"}
-                  initial={reduced ? { opacity: 0 } : false}
-                  animate={{ opacity: 1 }}
-                  aria-hidden
-                  className="absolute inset-y-[9px] -inset-x-[3px] rounded-sm border border-line-mid bg-surface-2"
-                  transition={NOTCH}
-                />
-              ) : null}
-              <HabitGlyph
-                habit={k}
-                code={h.code}
-                seated={k === seatedId}
-                state={
-                  !scheduled
-                    ? "unscheduled"
-                    : done
-                      ? "done"
-                      : endedOf.get(k)
-                        ? "overdue"
-                        : "pending"
-                }
+    <div className="flex w-full items-center justify-between px-7">
+      {habits.map((h) => {
+        const k = h.id;
+        const idx = blockOf.get(k);
+        const isFloating = floating.has(k);
+        const scheduled = idx != null || isFloating;
+        const done = log?.habits?.[k] === true;
+        return (
+          <button
+            key={k}
+            type="button"
+            title={h.label}
+            // aria-disabled, not disabled: the glyph still reads and still
+            // takes a press, it simply has no block to open.
+            aria-disabled={!scheduled}
+            aria-label={`${h.label} — ${
+              !scheduled
+                ? "not scheduled today"
+                : done
+                  ? "done, open to change"
+                  : "not logged, open to log"
+            }`}
+            onClick={() => {
+              if (!scheduled) return;
+              haptic(6);
+              if (idx != null) {
+                setPending(k);
+                onRecall(idx);
+              } else {
+                onFloating(k);
+              }
+            }}
+            className="relative flex min-h-11 min-w-11 items-center justify-center"
+          >
+            {markerId === k ? (
+              <motion.span
+                layoutId={reduced ? undefined : "register-seat"}
+                initial={reduced ? { opacity: 0 } : false}
+                animate={{ opacity: 1 }}
+                aria-hidden
+                className="absolute inset-x-0 inset-y-[4px] rounded-sm border border-line-mid bg-surface-2"
+                transition={NOTCH}
               />
-            </button>
-          );
-        })}
-      </div>
+            ) : null}
+            <HabitGlyph
+              habit={k}
+              code={h.code}
+              icon={h.icon}
+              seated={seatedId === k}
+              state={
+                !scheduled
+                  ? "unscheduled"
+                  : done
+                    ? "done"
+                    : endedOf.get(k)
+                      ? "overdue"
+                      : "pending"
+              }
+            />
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1652,11 +1513,6 @@ export function DayScreen() {
     enabled: pickedDate == null && floatingId == null && thread == null,
   });
 
-  const handleLive = useCallback((active: boolean) => {
-    setLive(active);
-    setScrubbing(active);
-    if (active) claimed.current = true;
-  }, []);
   /** The day surface has been shown once; its entrance is spent. */
   const entered = useRef(false);
   useEffect(() => {
@@ -1802,6 +1658,56 @@ export function DayScreen() {
   const focusIndex = selected != null && day.blocks[selected] ? selected : day.focusIndex;
   const focus = day.blocks[focusIndex];
   const recalled = focusIndex !== day.focusIndex;
+
+  /*
+    Spin the wheel to a tapped icon rather than teleporting.
+
+    Every intermediate block takes the seat for a beat on an ease-in schedule —
+    the early notches land almost together, the late ones spread out — which on
+    screen is a fast flick that decelerates into the target, a rolodex settling
+    rather than a cut. The live flag is raised for the duration so the seat
+    keeps its fixed shell and the rim drops its blur; without it every notch
+    would re-rasterise a column of blurred rows.
+  */
+  const spinTimers = useRef<number[]>([]);
+  const clearSpin = useCallback(() => {
+    for (const t of spinTimers.current) window.clearTimeout(t);
+    spinTimers.current = [];
+  }, []);
+  useEffect(() => clearSpin, [clearSpin]);
+  const spinTo = useCallback(
+    (target: number) => {
+      clearSpin();
+      if (target === focusIndex || !day.blocks[target]) return;
+      // Landing on the live block is a return, not a recall.
+      const land = (idx: number) =>
+        setSelected(idx === day.focusIndex ? null : idx);
+      const dir = target > focusIndex ? 1 : -1;
+      const steps: number[] = [];
+      for (let i = focusIndex + dir; i !== target; i += dir) steps.push(i);
+      steps.push(target);
+      if (reduced || steps.length === 1) {
+        land(target);
+        return;
+      }
+      setLive(true);
+      setScrubbing(true);
+      const total = Math.min(620, 200 + 55 * steps.length);
+      steps.forEach((idx, i) => {
+        const at = total * Math.pow((i + 1) / steps.length, 2.4);
+        const id = window.setTimeout(() => {
+          haptic(3);
+          land(idx);
+          if (i === steps.length - 1) {
+            setLive(false);
+            setScrubbing(false);
+          }
+        }, at);
+        spinTimers.current.push(id);
+      });
+    },
+    [focusIndex, day, reduced, clearSpin],
+  );
   const showFocus =
     focus &&
     (recalled || !(day.state === "after" && day.graceIndex < 0)) &&
@@ -2169,9 +2075,8 @@ export function DayScreen() {
                     log={log}
                     habits={habits}
                     focusIndex={focusIndex}
-                    onRecall={setSelected}
+                    onRecall={spinTo}
                     onFloating={setFloatingId}
-                    onLive={handleLive}
                   />
                 </motion.div>
               </motion.div>
