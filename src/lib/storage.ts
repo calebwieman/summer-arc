@@ -322,6 +322,8 @@ export function exportCsv(): string {
   const habits = getHabits();
   const cols = [
     "date",
+    "run_miles",
+    "run_minutes",
     "deep_work_minutes",
     "content_shipped",
     "training_note",
@@ -330,6 +332,8 @@ export function exportCsv(): string {
   ];
   const rows = getAllDailyLogs().map((log) => [
     log.date,
+    log.runMiles ?? "",
+    log.runMinutes ?? "",
     log.deepWorkMinutes || "",
     log.contentShipped ? "1" : "",
     log.trainingNote ?? "",

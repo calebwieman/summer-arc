@@ -94,3 +94,19 @@ export function readClockOverride(search: string): ClockOverride {
 export function todayISO(d: Date = new Date()): string {
   return format(d, "yyyy-MM-dd");
 }
+
+/**
+ * Minutes-per-mile as "7:42". The one number a runner actually reads, and it is
+ * derived rather than stored so it can never disagree with distance and time.
+ */
+export function formatPace(miles?: number, minutes?: number): string | null {
+  if (!miles || !minutes || miles <= 0 || minutes <= 0) return null;
+  const per = minutes / miles;
+  if (!Number.isFinite(per) || per > 60) return null;
+  const m = Math.floor(per);
+  const sec = Math.round((per - m) * 60);
+  // 7:60 is not a pace.
+  const mm = sec === 60 ? m + 1 : m;
+  const ss = sec === 60 ? 0 : sec;
+  return `${mm}:${String(ss).padStart(2, "0")}`;
+}

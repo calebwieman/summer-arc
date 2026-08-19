@@ -39,7 +39,7 @@ import { WeekStrip, buildWeek, type WeekDay } from "./week-strip";
 import { Settings2 } from "lucide-react";
 import { HabitGlyph } from "./habit-glyph";
 import { Latch } from "./latch";
-import { MinutesField, NoteField, ShippedField } from "./fields";
+import { MinutesField, NoteField, RunField, ShippedField } from "./fields";
 
 /*
   How far the finger travels before a pull commits.
@@ -858,8 +858,11 @@ function RegisterInner({
   const startAt = useRef<{ x: number; y: number } | null>(null);
   const lastPicked = useRef<string | null>(null);
 
+  /** A floating letter the slide passed over, opened only once the finger lifts. */
+  const pendingFloat = useRef<HabitKey | null>(null);
+
   const pick = useCallback(
-    (id: HabitKey) => {
+    (id: HabitKey, live: boolean) => {
       if (id === lastPicked.current) return;
       const idx = blockOf.get(id);
       const isFloating = floating.has(id);
@@ -868,7 +871,25 @@ function RegisterInner({
       if (idx == null && !isFloating) return;
       lastPicked.current = id;
       haptic(6);
-      if (idx != null) onRecall(idx);
+
+      if (idx != null) {
+        // Anchored: recall its block. Non-modal, so the slide runs straight
+        // through it and you can keep going.
+        pendingFloat.current = null;
+        onRecall(idx);
+        return;
+      }
+
+      /*
+        Floating letters have no block to seat, and their sheet is modal — so
+        opening it the instant the finger crosses the letter tore the slide in
+        half. Run is floating, which is exactly when this bites.
+
+        Mid-slide it is only marked. The sheet opens on release, and only if
+        the finger came to rest here, so passing over Run on the way to Lights
+        Out costs nothing and stopping on Run still opens it.
+      */
+      if (live) pendingFloat.current = id;
       else onFloating(id);
     },
     [blockOf, floating, onRecall, onFloating],
@@ -956,17 +977,23 @@ function RegisterInner({
         }
         if (!scrubbing.current) return;
         const id = nearest(e.clientX);
-        if (id) pick(id);
+        if (id) pick(id, true);
       }}
       onPointerUp={() => {
         startAt.current = null;
         if (scrubbing.current) onLive(false);
         scrubbing.current = false;
+        // The slide ended on a floating letter, so now it may open.
+        const f = pendingFloat.current;
+        pendingFloat.current = null;
+        if (f) onFloating(f);
       }}
       onPointerCancel={() => {
         startAt.current = null;
         if (scrubbing.current) onLive(false);
         scrubbing.current = false;
+        // Cancelled, not released: nothing was chosen, so open nothing.
+        pendingFloat.current = null;
       }}
     >
       {/* Centred, and no longer a scroll box: scrubbing owns the horizontal
@@ -997,7 +1024,7 @@ function RegisterInner({
               onClick={() => {
                 // The slide already selected as it went.
                 if (scrubbed.current) return;
-                pick(k);
+                pick(k, false);
               }}
               className="relative flex min-h-11 items-center px-1"
             >
@@ -1316,7 +1343,12 @@ function FocusBlock({
           ) : null}
 
           {b.fields.includes("trainingNote") ? (
-            <div className="space-y-2">
+            <div className="space-y-4">
+              <RunField
+                miles={log?.runMiles}
+                minutes={log?.runMinutes}
+                onChange={onPatch}
+              />
               <NoteField
                 // In the training block this is the session you are in; at Wind
                 // Down it is the run you are writing up at the end of the day.
@@ -2252,6 +2284,7 @@ export function DayScreen() {
         habit={floatingId ? habitById.get(floatingId) : undefined}
         log={log}
         onChange={setHabit}
+        onPatch={patch}
         onClose={() => setFloatingId(null)}
       />
     </motion.main>
