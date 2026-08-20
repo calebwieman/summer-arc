@@ -97,16 +97,13 @@ function assignFields(blocks: Block[]): Map<number, BlockField[]> {
   // The day's closing note always lives in Wind Down.
   if (windDownIdx >= 0) push(windDownIdx, "note");
 
-  // The run is loggable in two places on purpose. Nobody types a session note
-  // at 05:00 mid-run, so Wind Down always carries the training entry as an
-  // end-of-day write-up; the training block keeps it too for the days you do
-  // want it there. Same value, two doors — and it is also what makes a Sunday
-  // shakeout recordable, since Sunday has no training block at all.
+  // The session note lives in the training block, and only there. Wind Down
+  // used to carry it too as the end-of-day door, which stacked a whole second
+  // run entry onto the day's already-fullest card — and the R letter's sheet
+  // has since become the real any-hour door, Sundays included. One block, one
+  // job; the sheet covers the rest.
   const trainingIdx = findIdx((b) => b.kind === "training");
   if (trainingIdx >= 0) push(trainingIdx, "trainingNote");
-  if (windDownIdx >= 0 && windDownIdx !== trainingIdx) {
-    push(windDownIdx, "trainingNote");
-  }
 
   const deepIdx = findIdx((b) => b.label === "Deep Work");
   if (deepIdx >= 0) {

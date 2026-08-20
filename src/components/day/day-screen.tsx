@@ -41,7 +41,7 @@ import { WeekStrip, buildWeek, type WeekDay } from "./week-strip";
 import { Settings2 } from "lucide-react";
 import { HabitGlyph } from "./habit-glyph";
 import { Latch } from "./latch";
-import { MinutesField, NoteField, RunField, ShippedField } from "./fields";
+import { MinutesField, NoteField, ShippedField } from "./fields";
 
 /*
   How far the finger travels before a pull commits.
@@ -1207,17 +1207,10 @@ function FocusBlock({
 
           {b.fields.includes("trainingNote") ? (
             <div className="space-y-4">
-              <RunField
-                miles={log?.runMiles}
-                minutes={log?.runMinutes}
-                onChange={onPatch}
-              />
+              {/* The numbers live in the R sheet — this card is the session
+                  you are in, not the ledger. */}
               <NoteField
-                // In the training block this is the session you are in; at Wind
-                // Down it is the run you are writing up at the end of the day.
-                label={
-                  b.block.kind === "training" ? "Session" : "Run — log it now"
-                }
+                label="Session"
                 placeholder="6 × 800 @ 5:42"
                 value={log?.trainingNote ?? ""}
                 onChange={(v) => onPatch({ trainingNote: v })}
@@ -1722,9 +1715,16 @@ export function DayScreen() {
       }
       setLive(true);
       setScrubbing(true);
-      const total = Math.min(620, 200 + 55 * steps.length);
+      /*
+        Tuned on the phone: 620ms with a 2.4 exponent spent a third of every
+        flight easing into the last notch, which read as lag the moment taps
+        came quickly — each new tap restarts from wherever the wheel is, so a
+        heavy tail keeps it perpetually behind the finger. Shorter, flatter,
+        still decelerating.
+      */
+      const total = Math.min(420, 160 + 40 * steps.length);
       steps.forEach((idx, i) => {
-        const at = total * Math.pow((i + 1) / steps.length, 2.4);
+        const at = total * Math.pow((i + 1) / steps.length, 1.8);
         const id = window.setTimeout(() => {
           haptic(3);
           land(idx);
