@@ -115,9 +115,11 @@ function WeeklyMiles({
 function PaceTrend({
   runs,
   reduced,
+  full,
 }: {
   runs: RunPoint[];
   reduced: boolean | null;
+  full: boolean;
 }) {
   const paced = runs.filter((r) => r.paceMin != null);
   const [picked, setPicked] = useState<string | null>(null);
@@ -135,7 +137,12 @@ function PaceTrend({
     paced.length === 1 ? 50 : (i / (paced.length - 1)) * 100;
 
   return (
-    <section aria-label="Pace per run" className="drop-when-mid">
+    <section
+      aria-label="Pace per run"
+      // The sessions page must sacrifice this on squat viewports; the trends
+      // sheet scrolls, so there it never hides.
+      className={full ? undefined : "drop-when-mid"}
+    >
       <div className="flex items-baseline justify-between">
         <h3 className="kicker">Pace</h3>
         <Caption
@@ -198,10 +205,13 @@ function PaceTrend({
 export function RunTrends({
   today,
   version,
+  full = false,
 }: {
   today: string;
   /** Bumped after any write, so the charts recount. */
   version: number;
+  /** In the scrolling trends sheet nothing needs to drop for height. */
+  full?: boolean;
 }) {
   const reduced = useReducedMotion();
   const { runs, weeks } = useMemo(
@@ -221,7 +231,7 @@ export function RunTrends({
   return (
     <div className="space-y-4">
       <WeeklyMiles weeks={weeks} reduced={reduced} />
-      <PaceTrend runs={runs} reduced={reduced} />
+      <PaceTrend runs={runs} reduced={reduced} full={full} />
     </div>
   );
 }

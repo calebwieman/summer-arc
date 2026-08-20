@@ -108,8 +108,10 @@ function Notifications() {
  * one-off choice or an insurance policy.
  */
 export function SystemScreen() {
+  // gap-5, not 7: Routine joined the stack and the page cannot scroll — at
+  // gap-7 the build stamp fell off the 852px floor.
   return (
-    <div className="flex h-full min-h-0 flex-col gap-7">
+    <div className="flex h-full min-h-0 flex-col gap-5">
       <Appearance />
       <RoutineSection />
       <Notifications />

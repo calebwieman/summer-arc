@@ -28,6 +28,7 @@ import { IMPACT, NOTCH, ROW, SEAT, SURFACE, TICK } from "@/lib/motion";
 import type { DailyLog, HabitKey } from "@/lib/types";
 import { FourteenDay } from "@/components/review/fourteen-day";
 import { WeekLoad } from "@/components/review/week-load";
+import { TrendsSheet } from "@/components/review/trends-sheet";
 import { HistoryScreen } from "@/components/history/history-screen";
 import { CalendarScreen } from "@/components/calendar/calendar-screen";
 import { SessionsScreen } from "@/components/sessions/sessions-screen";
@@ -1354,6 +1355,7 @@ export function DayScreen() {
   const [dataVersion, setDataVersion] = useState(0);
   /** A session type whose whole note history is open. */
   const [thread, setThread] = useState<string | null>(null);
+  const [trendsOpen, setTrendsOpen] = useState(false);
   /** A floating habit being committed in its own sheet. */
   const [floatingId, setFloatingId] = useState<HabitKey | null>(null);
   /** A recalled block index, or null when following the live day. */
@@ -1511,7 +1513,8 @@ export function DayScreen() {
     // A sheet is a detour, not a destination: while one is open the grid holds
     // still. Under reduced motion the whole horizontal axis stays available by
     // keyboard but not by gesture.
-    enabled: pickedDate == null && floatingId == null && thread == null,
+    enabled:
+      pickedDate == null && floatingId == null && thread == null && !trendsOpen,
   });
 
   /** The day surface has been shown once; its entrance is spent. */
@@ -2132,6 +2135,15 @@ export function DayScreen() {
                     <div className="drop-when-short mt-auto shrink-0 pt-4 pb-1">
                       <WeekLoad today={clock.date} version={dataVersion} />
                     </div>
+                    {/* Every chart, one place — the sheet scrolls, the page
+                        cannot, so the full set lives behind one tap. */}
+                    <button
+                      type="button"
+                      onClick={() => setTrendsOpen(true)}
+                      className="mono-xs min-h-11 shrink-0 text-center text-ink-3 hover:text-ink"
+                    >
+                      all trends →
+                    </button>
                   </>
                 ) : page === "history" ? (
                   <HistoryScreen
@@ -2220,6 +2232,12 @@ export function DayScreen() {
         onSaved={() => setDataVersion((v) => v + 1)}
       />
       <SessionThread label={thread} onClose={() => setThread(null)} />
+      <TrendsSheet
+        open={trendsOpen}
+        onClose={() => setTrendsOpen(false)}
+        today={clock.date}
+        version={dataVersion}
+      />
       <FloatingHabitSheet
         habit={floatingId ? habitById.get(floatingId) : undefined}
         log={log}

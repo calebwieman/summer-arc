@@ -316,9 +316,6 @@ export function RoutineSection() {
           );
         })}
       </div>
-      <p className="mono-xs mt-2.5 text-center text-ink-3">
-        tap a day to reshape it — the spine follows
-      </p>
 
       <DayEditor day={editing} onClose={() => setEditing(null)} />
     </section>

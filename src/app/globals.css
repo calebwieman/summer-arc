@@ -339,6 +339,7 @@
     padding-top: calc(var(--safe-top) + var(--status-band) + 8px);
   }
 
+
   /* Same clearance for the surfaces that scroll their own content. */
   .app-top-scroll {
     padding-top: calc(var(--safe-top) + var(--status-band) + 4px);
