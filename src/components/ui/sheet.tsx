@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { X } from "lucide-react";
 
@@ -28,6 +29,8 @@ export function Sheet({
   tall?: boolean;
 }) {
   const reduced = useReducedMotion();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!open) return;
@@ -38,7 +41,26 @@ export function Sheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  return (
+  /*
+    Portalled to the body, and this is not a nicety.
+
+    A sheet opened from a surface used to mount inside the surface grid, which
+    put three things above it that a sheet cannot live under. The grid wrapper
+    carries `touch-action: none`, and touch-action only intersects downward —
+    so the sheet's own `overflow-y-auto` could not scroll by touch at all. The
+    stack's drag element sits above that, so every vertical drag inside the
+    sheet was read as a pull and changed the page out from under it. And both
+    of those carry transforms, which make a transformed ancestor the containing
+    block for `position: fixed` — so the sheet was pinned to the moving surface
+    rather than to the viewport.
+
+    At the body it is outside all three: native scrolling, no gesture theft, and
+    `fixed` means fixed. Every sheet in the app goes through this shell, so this
+    fixes them all and any future one.
+  */
+  if (!mounted) return null;
+
+  return createPortal(
     <AnimatePresence>
       {open ? (
         <>
@@ -88,6 +110,7 @@ export function Sheet({
           </motion.div>
         </>
       ) : null}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
