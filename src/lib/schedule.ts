@@ -191,7 +191,7 @@ export function weekdayOf(date: string): Weekday {
 
 /** Every block scheduled for the given ISO date, in start order. */
 export function blocksForDate(date: string): Block[] {
-  return WEEKLY_SCHEDULE[weekdayOf(date)];
+  return routineFor(weekdayOf(date));
 }
 
 /** Minutes since midnight for an "HH:mm" string. */
@@ -211,15 +211,15 @@ export function blockAt(date: string, time: string): Block | undefined {
 /**
  * The distinct training sessions in the week, in the order they first occur.
  *
- * Structurally fixed by the template rather than by anything the user can
- * edit, which is what lets a page built on it have a constant height: five
- * rows today, and five rows until this file changes.
+ * Follows the routine, so an edited week reshapes it. The sessions page caps
+ * what it renders — its surface cannot scroll — so a week with many distinct
+ * session names shows the first six and says so.
  */
 export function trainingLabels(): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const day of [1, 2, 3, 4, 5, 6, 0] as Weekday[]) {
-    for (const b of WEEKLY_SCHEDULE[day]) {
+    for (const b of routineFor(day)) {
       if (b.kind !== "training" || seen.has(b.label)) continue;
       seen.add(b.label);
       out.push(b.label);
@@ -243,11 +243,168 @@ export function allBlockLabels(): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const day of [1, 2, 3, 4, 5, 6, 0] as Weekday[]) {
-    for (const b of WEEKLY_SCHEDULE[day]) {
+    for (const b of routineFor(day)) {
       if (seen.has(b.label)) continue;
       seen.add(b.label);
       out.push(b.label);
     }
   }
   return out;
+}
+
+
+/* ------------------------------------------------------------------ routine */
+
+/**
+ * User overrides for the weekly template.
+ *
+ * The template above is the default, not the law: a semester reshuffles class
+ * times within a week of starting, and a routine you cannot edit gets abandoned
+ * rather than lived in. Overrides are stored per weekday and read by everything
+ * through `routineFor`, so the whole app — the spine, the sessions page, the
+ * anchor lists in the habit editor — follows an edit with no other wiring.
+ *
+ * The cache is keyed on the raw string: `blocksForDate` runs on every clock
+ * tick, and parsing localStorage sixty times a minute would be rude.
+ */
+
+const ROUTINE_KEY = "standard:routine:v1";
+export const ROUTINE_CHANGED = "standard:routine-changed";
+
+const TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+const KINDS: BlockKind[] = ["training", "class", "work", "personal", "rest"];
+
+export function isRoutineBlock(v: unknown): v is Block {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.start === "string" &&
+    TIME_RE.test(o.start) &&
+    typeof o.end === "string" &&
+    TIME_RE.test(o.end) &&
+    typeof o.label === "string" &&
+    o.label.trim().length > 0 &&
+    typeof o.kind === "string" &&
+    (KINDS as string[]).includes(o.kind)
+  );
+}
+
+type Overrides = Partial<Record<Weekday, Block[]>>;
+
+let cacheRaw: string | null | undefined;
+let cacheVal: Overrides = {};
+
+function overrides(): Overrides {
+  if (typeof window === "undefined") return {};
+  const raw = window.localStorage.getItem(ROUTINE_KEY);
+  if (raw === cacheRaw) return cacheVal;
+  cacheRaw = raw;
+  cacheVal = {};
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      for (const d of [0, 1, 2, 3, 4, 5, 6] as Weekday[]) {
+        const arr = parsed[String(d)];
+        if (Array.isArray(arr) && arr.length > 0 && arr.every(isRoutineBlock)) {
+          cacheVal[d] = [...arr].sort(
+            (a, b) => toMinutes(a.start) - toMinutes(b.start),
+          );
+        }
+      }
+    } catch {
+      /* corrupted → template */
+    }
+  }
+  return cacheVal;
+}
+
+/** The day as the user has shaped it, falling back to the template. */
+export function routineFor(day: Weekday): Block[] {
+  return overrides()[day] ?? WEEKLY_SCHEDULE[day];
+}
+
+export function routineEdited(day: Weekday): boolean {
+  return overrides()[day] != null;
+}
+
+/** Every stored override, for the backup bundle. */
+export function routineOverrides(): Overrides {
+  return overrides();
+}
+
+/**
+ * Why a proposed day cannot be saved, in words, or null when it can. Overlap
+ * is rejected rather than warned: the whole spine assumes at most one current
+ * block, and a saved overlap would quietly break focus everywhere.
+ */
+export function routineProblem(blocks: Block[]): string | null {
+  if (blocks.length === 0) return "a day needs at least one block";
+  for (const b of blocks) {
+    if (!isRoutineBlock(b)) return "every block needs a name and real times";
+    if (toMinutes(b.end) <= toMinutes(b.start)) {
+      return `${b.label.trim() || "a block"} ends before it starts`;
+    }
+  }
+  const sorted = [...blocks].sort(
+    (a, b) => toMinutes(a.start) - toMinutes(b.start),
+  );
+  for (let i = 1; i < sorted.length; i++) {
+    if (toMinutes(sorted[i].start) < toMinutes(sorted[i - 1].end)) {
+      return `${sorted[i - 1].label} overlaps ${sorted[i].label}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Store a day (null restores the template). Returns the problem instead of
+ * saving when the day is invalid.
+ */
+export function setRoutineDay(
+  day: Weekday,
+  blocks: Block[] | null,
+): string | null {
+  if (typeof window === "undefined") return "no storage here";
+  if (blocks) {
+    const problem = routineProblem(blocks);
+    if (problem) return problem;
+  }
+  const next: Overrides = { ...overrides() };
+  if (blocks) {
+    next[day] = [...blocks].sort(
+      (a, b) => toMinutes(a.start) - toMinutes(b.start),
+    );
+  } else {
+    delete next[day];
+  }
+  if (Object.keys(next).length === 0) {
+    window.localStorage.removeItem(ROUTINE_KEY);
+  } else {
+    window.localStorage.setItem(ROUTINE_KEY, JSON.stringify(next));
+  }
+  cacheRaw = undefined;
+  window.dispatchEvent(new Event(ROUTINE_CHANGED));
+  return null;
+}
+
+/** Replace every override at once — the restore path. Trusts nothing. */
+export function setRoutineAll(raw: unknown): number {
+  if (typeof window === "undefined" || !raw || typeof raw !== "object") return 0;
+  const next: Overrides = {};
+  let days = 0;
+  for (const d of [0, 1, 2, 3, 4, 5, 6] as Weekday[]) {
+    const arr = (raw as Record<string, unknown>)[String(d)];
+    if (Array.isArray(arr) && arr.length > 0 && arr.every(isRoutineBlock)) {
+      if (routineProblem(arr as Block[]) == null) {
+        next[d] = arr as Block[];
+        days += 1;
+      }
+    }
+  }
+  if (days > 0) {
+    window.localStorage.setItem(ROUTINE_KEY, JSON.stringify(next));
+    cacheRaw = undefined;
+    window.dispatchEvent(new Event(ROUTINE_CHANGED));
+  }
+  return days;
 }

@@ -2,7 +2,7 @@
 
 import { motion, useReducedMotion } from "motion/react";
 import { format, parseISO, subDays } from "date-fns";
-import { habitIdsForDate } from "@/lib/habits";
+import { getHabits, habitIdsForDate } from "@/lib/habits";
 import { getDailyLog } from "@/lib/storage";
 
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
@@ -20,10 +20,14 @@ export interface WeekDay {
 export function buildWeek(today: string): WeekDay[] {
   const end = parseISO(today);
   const out: WeekDay[] = [];
+  // Same denominator as the masthead tally: the run is real but off-summary,
+  // and counting it here made the strip read 5/6 beside a masthead 5/5 — the
+  // full-height "complete" tint was unreachable on any day without a run.
+  const counted = getHabits().filter((h) => !h.offSummary);
   for (let i = 6; i >= 0; i--) {
     const d = subDays(end, i);
     const date = format(d, "yyyy-MM-dd");
-    const keys = habitIdsForDate(date);
+    const keys = habitIdsForDate(date, counted);
     const log = getDailyLog(date);
     out.push({
       date,

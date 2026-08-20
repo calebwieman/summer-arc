@@ -11,6 +11,8 @@ import {
   saveHabits,
   type HabitDef,
 } from "@/lib/habits";
+
+const BUILTIN_IDS_SET = new Set(BUILT_INS.map((h) => h.id));
 import { allBlockLabels, type Weekday } from "@/lib/schedule";
 import { haptic } from "@/lib/haptics";
 import { ICON_NAMES, iconFor } from "@/components/day/habit-icons";
@@ -328,7 +330,21 @@ export function HabitEditor() {
               haptic(6);
               commit(next);
             }}
-            onDelete={() => commit(habits.filter((x) => x.id !== h.id))}
+            onDelete={() =>
+              /*
+                A built-in is archived, never removed: getAllHabits reconciles
+                missing built-ins back into the registry, so a hard delete
+                reappeared on the next read — confirmed gone, back in the same
+                second. Archived is exactly the tombstone that merge respects.
+              */
+              commit(
+                BUILTIN_IDS_SET.has(h.id)
+                  ? habits.map((x) =>
+                      x.id === h.id ? { ...x, archived: true } : x,
+                    )
+                  : habits.filter((x) => x.id !== h.id),
+              )
+            }
           />
         ))}
       </div>

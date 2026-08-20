@@ -2,6 +2,7 @@
 
 import { motion, useReducedMotion } from "motion/react";
 import { haptic } from "@/lib/haptics";
+import { formatPace } from "@/lib/clock";
 
 const TAP = { type: "spring", stiffness: 520, damping: 32 } as const;
 
@@ -187,6 +188,76 @@ export function ShippedField({
       >
         {value ? "shipped" : "not shipped"}
       </motion.button>
+    </div>
+  );
+}
+
+/** 16px minimum, same reason as the note fields: anything smaller zooms iOS. */
+const NUM_CLS =
+  "w-full rounded-sm border border-line-soft bg-surface-2 px-3 py-3 text-center font-mono text-[16px] tabular-nums text-ink placeholder:text-ink-3 outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus:border-line-mid";
+
+/**
+ * The run as two numbers, with pace falling out of them.
+ *
+ * Distance and time are what can be charted; the session note stays for what a
+ * sentence is good at. Pace is shown but never stored — a stored pace is a
+ * third number that can disagree with the other two.
+ *
+ * `inputMode="decimal"` rather than `type="number"`: the spinner is useless on
+ * a phone and type=number silently discards a partly-typed value like "6." on
+ * every keystroke, which makes entering 6.2 genuinely difficult.
+ */
+export function RunField({
+  miles,
+  minutes,
+  onChange,
+}: {
+  miles?: number;
+  minutes?: number;
+  onChange: (patch: { runMiles?: number; runMinutes?: number }) => void;
+}) {
+  const pace = formatPace(miles, minutes);
+  const num = (raw: string): number | undefined => {
+    const t = raw.trim();
+    if (!t) return undefined;
+    const n = Number(t);
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between">
+        <Label>Run</Label>
+        {/* Only once both halves exist; a pace from one of them is a lie. */}
+        {pace ? (
+          <span className="mono-xs text-ink-2">{pace} /mi</span>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2">
+        <label className="flex-1">
+          <span className="sr-only">Distance in miles</span>
+          <input
+            inputMode="decimal"
+            enterKeyHint="done"
+            placeholder="mi"
+            defaultValue={miles ?? ""}
+            onBlur={(e) => onChange({ runMiles: num(e.target.value) })}
+            className={NUM_CLS}
+          />
+        </label>
+        <span className="mono-xs shrink-0 text-ink-4">×</span>
+        <label className="flex-1">
+          <span className="sr-only">Total time in minutes</span>
+          <input
+            inputMode="decimal"
+            enterKeyHint="done"
+            placeholder="min"
+            defaultValue={minutes ?? ""}
+            onBlur={(e) => onChange({ runMinutes: num(e.target.value) })}
+            className={NUM_CLS}
+          />
+        </label>
+      </div>
     </div>
   );
 }

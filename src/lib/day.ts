@@ -56,6 +56,8 @@ export interface DayModel {
    * must not have vanished. -1 when nothing is being held.
    */
   graceIndex: number;
+  /** Scheduled today but kept out of the done/total tally. */
+  offSummary: HabitKey[];
   /**
    * Habits scheduled today that no block owns — a user habit with no anchor.
    * They have no place in the spine, so they are committed from a sheet opened
@@ -95,11 +97,13 @@ function assignFields(blocks: Block[]): Map<number, BlockField[]> {
   // The day's closing note always lives in Wind Down.
   if (windDownIdx >= 0) push(windDownIdx, "note");
 
-  // Sunday has no training block, but a shakeout run still happens — without a
-  // fallback there is nowhere to write it down.
+  // The session note lives in the training block, and only there. Wind Down
+  // used to carry it too as the end-of-day door, which stacked a whole second
+  // run entry onto the day's already-fullest card — and the R letter's sheet
+  // has since become the real any-hour door, Sundays included. One block, one
+  // job; the sheet covers the rest.
   const trainingIdx = findIdx((b) => b.kind === "training");
-  const trainingTarget = trainingIdx >= 0 ? trainingIdx : windDownIdx;
-  if (trainingTarget >= 0) push(trainingTarget, "trainingNote");
+  if (trainingIdx >= 0) push(trainingIdx, "trainingNote");
 
   const deepIdx = findIdx((b) => b.label === "Deep Work");
   if (deepIdx >= 0) {
@@ -132,9 +136,11 @@ export function buildDay(
   const byBlock = new Map<number, HabitKey[]>();
   const floating: HabitKey[] = [];
   const scheduled: HabitKey[] = [];
+  const offSummary: HabitKey[] = [];
   for (const h of habits) {
     if (!isHabitScheduledOn(h, date)) continue;
     scheduled.push(h.id);
+    if (h.offSummary) offSummary.push(h.id);
     const idx = h.anchor ? anchorIndexFor(h, date) : -1;
     if (idx >= 0) {
       const cur = byBlock.get(idx);
@@ -226,6 +232,7 @@ export function buildDay(
     state,
     gapRemaining,
     graceIndex,
+    offSummary,
     floating,
     scheduled,
   };
@@ -241,8 +248,12 @@ export function habitTally(
   day: DayModel,
   log: DailyLog | null,
 ): { done: number; total: number } {
+  // The run is real but is not one of the day's standing commitments, so it
+  // stays out of done/total. Counting it would read 4/6 on a complete day.
+  const skip = new Set(day.offSummary);
+  const counted = day.scheduled.filter((k) => !skip.has(k));
   return {
-    done: day.scheduled.filter((k) => log?.habits?.[k]).length,
-    total: day.scheduled.length,
+    done: counted.filter((k) => log?.habits?.[k]).length,
+    total: counted.length,
   };
 }

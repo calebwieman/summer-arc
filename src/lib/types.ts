@@ -33,4 +33,15 @@ export interface DailyLog {
    * them. The record draws these as no-data, never as a miss.
    */
   noData?: HabitKey[];
+  /**
+   * The run, as numbers rather than prose.
+   *
+   * `trainingNote` stays for what a sentence is good at ("legs felt flat, hot")
+   * — but distance and time are the two things worth charting, and free text
+   * cannot be charted. Both optional: a day with no run simply has neither, and
+   * every reader treats absent as "did not run" rather than zero.
+   */
+  runMiles?: number;
+  /** Total elapsed minutes, so pace is derivable and never stored twice. */
+  runMinutes?: number;
 }

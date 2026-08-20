@@ -1,4 +1,5 @@
 import type { BlockKind, Weekday } from "./schedule";
+import { todayISO } from "./clock";
 import { blocksForDate, weekdayOf } from "./schedule";
 
 /**
@@ -41,7 +42,22 @@ export interface HabitDef {
    */
   days: Weekday[];
   anchor?: HabitAnchor;
+  /**
+   * The habit does not exist before this date. Stamped when a new built-in is
+   * reconciled into an established registry, so weeks of history are not
+   * rescored as misses for a letter that was not there.
+   */
+  since?: string;
   order: number;
+  /**
+   * Kept out of the day's done/total tally.
+   *
+   * For a habit that is real and worth a letter but is not one of the day's
+   * standing commitments — the run, which happens when it happens and is
+   * written up at night. Counting it would make the tally read 4/6 on a day
+   * that was actually complete. It still scores in the record.
+   */
+  offSummary?: boolean;
   /**
    * Retired rather than deleted, so the history it already wrote stays
    * readable and stays out of today's scoring.
@@ -82,11 +98,32 @@ export const BUILT_INS: HabitDef[] = [
     id: "training",
     label: "Training",
     code: "T",
-    icon: "run",
+    // The dumbbell. Training shared footprints with the run for a week, and
+    // two identical silhouettes in a six-icon register is a bug.
+    icon: "lift",
     days: ALL_DAYS,
     // Kind, not label: every session in the Hyrox week is this one habit.
     anchor: { kind: "training" },
     order: 2,
+  },
+  {
+    id: "run",
+    label: "Run",
+    code: "R",
+    icon: "run",
+    // The letter's birthday. A fresh registry gets the built-ins directly, so
+    // the reconcile stamp above never runs for it — without this, logs that
+    // predate the feature would score as run misses.
+    since: "2026-08-19",
+    days: ALL_DAYS,
+    /*
+      No anchor, deliberately. Every other letter belongs to a block and is
+      thrown inside it; this one belongs to no hour. The run happens when it
+      happens and gets written up at the end of the day, so it is a letter you
+      scrub to rather than a slot you arrive at.
+    */
+    offSummary: true,
+    order: 3,
   },
   {
     id: "deepWork",
@@ -95,7 +132,7 @@ export const BUILT_INS: HabitDef[] = [
     icon: "target",
     days: ALL_DAYS,
     anchor: { labels: ["Deep Work"] },
-    order: 3,
+    order: 4,
   },
   {
     id: "lightsOut",
@@ -104,7 +141,7 @@ export const BUILT_INS: HabitDef[] = [
     icon: "moon",
     days: ALL_DAYS,
     anchor: { labels: ["Wind Down"] },
-    order: 4,
+    order: 5,
   },
 ];
 
@@ -129,9 +166,43 @@ export function getAllHabits(): HabitDef[] {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return BUILT_INS;
     const defs = parsed.filter(isDef);
-    return defs.length > 0
-      ? [...defs].sort((a, b) => a.order - b.order)
-      : BUILT_INS;
+    if (defs.length === 0) return BUILT_INS;
+
+    /*
+      Reconcile the built-ins into a stored registry.
+
+      Stored defs used to shadow BUILT_INS entirely, so a registry saved before
+      a built-in existed could never receive it — the Run letter simply never
+      appeared for anyone who had ever edited a habit. Archiving still wins: a
+      retired built-in is present-but-archived, so the merge cannot resurrect
+      it.
+    */
+    const have = new Set(defs.map((d) => d.id));
+    let changed = false;
+    for (const b of BUILT_INS) {
+      if (!have.has(b.id)) {
+        // Born today, as far as this registry is concerned: without the stamp
+        // every day since the first log rescored as a miss for a letter that
+        // did not exist yet.
+        defs.push({ ...b, since: b.since ?? todayISO() });
+        changed = true;
+      }
+    }
+
+    /*
+      One-time normalisation: a stored training that still carries the old
+      footprints default moves to the dumbbell, now that the run owns
+      footprints. A hand-picked icon is anything else, and is left alone.
+    */
+    for (const d of defs) {
+      if (d.id === "training" && d.icon === "run") {
+        d.icon = "lift";
+        changed = true;
+      }
+    }
+
+    if (changed) window.localStorage.setItem(KEY, JSON.stringify(defs));
+    return [...defs].sort((a, b) => a.order - b.order);
   } catch {
     return BUILT_INS;
   }
@@ -200,6 +271,8 @@ export function anchorIndexFor(habit: HabitDef, date: string): number {
  */
 export function isHabitScheduledOn(habit: HabitDef, date: string): boolean {
   if (habit.archived) return false;
+  // Before a habit existed there is nothing to have missed.
+  if (habit.since && date < habit.since) return false;
   if (habit.anchor) return anchorIndexFor(habit, date) >= 0;
   return habit.days.includes(weekdayOf(date));
 }

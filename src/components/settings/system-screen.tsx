@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Archive } from "@/components/review/archive";
+import { RoutineSection } from "./routine-editor";
 import { useTheme, type ThemePref } from "@/components/theme/theme-provider";
 import { haptic } from "@/lib/haptics";
 import { TICK } from "@/lib/motion";
@@ -107,9 +108,12 @@ function Notifications() {
  * one-off choice or an insurance policy.
  */
 export function SystemScreen() {
+  // gap-5, not 7: Routine joined the stack and the page cannot scroll — at
+  // gap-7 the build stamp fell off the 852px floor.
   return (
-    <div className="flex h-full min-h-0 flex-col gap-7">
+    <div className="flex h-full min-h-0 flex-col gap-5">
       <Appearance />
+      <RoutineSection />
       <Notifications />
       <Archive />
       {/* Which build is actually running, readable from the phone. It is the

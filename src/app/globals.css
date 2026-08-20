@@ -339,6 +339,7 @@
     padding-top: calc(var(--safe-top) + var(--status-band) + 8px);
   }
 
+
   /* Same clearance for the surfaces that scroll their own content. */
   .app-top-scroll {
     padding-top: calc(var(--safe-top) + var(--status-band) + 4px);
@@ -352,6 +353,17 @@
   */
   @media (max-height: 740px) {
     .drop-when-short {
+      display: none;
+    }
+  }
+
+  /*
+    The sessions page runs the 852px floor to within a pixel, so its second
+    chart needs to stand down well before the 740 floor — at 830 and below the
+    pace half is the honest thing to lose first.
+  */
+  @media (max-height: 830px) {
+    .drop-when-mid {
       display: none;
     }
   }

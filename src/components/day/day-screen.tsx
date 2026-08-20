@@ -19,6 +19,7 @@ import { buildHabitSeries } from "@/lib/series";
 import { getDailyLog, lastTrainingNote, saveDailyLog } from "@/lib/storage";
 import { formatHeaderDate, makeEmptyLog } from "@/lib/today";
 import { HABITS_CHANGED, getHabits, type HabitDef } from "@/lib/habits";
+import { ROUTINE_CHANGED } from "@/lib/schedule";
 import { habitTally } from "@/lib/day";
 import { formatClock, formatDuration, formatTime, formatWatch } from "@/lib/clock";
 import { tomorrowLine, trainingLine } from "@/lib/week";
@@ -27,6 +28,7 @@ import { IMPACT, NOTCH, ROW, SEAT, SURFACE, TICK } from "@/lib/motion";
 import type { DailyLog, HabitKey } from "@/lib/types";
 import { FourteenDay } from "@/components/review/fourteen-day";
 import { WeekLoad } from "@/components/review/week-load";
+import { TrendsSheet } from "@/components/review/trends-sheet";
 import { HistoryScreen } from "@/components/history/history-screen";
 import { CalendarScreen } from "@/components/calendar/calendar-screen";
 import { SessionsScreen } from "@/components/sessions/sessions-screen";
@@ -204,9 +206,18 @@ function rise(order: number, reduced: boolean | null, first = true) {
  * tilt opens a gap under every row and the stack reads as slats, not a
  * surface. It approaches the ceiling rather than hitting it — see `pose`.
  */
-const WHEEL_STEP = 12;
-const WHEEL_MAX = 58;
-const WHEEL_PULL = 44;
+/*
+  Flattened, on the report that scrubbing the register felt bad.
+
+  The drum was 58 degrees deep with 12 degrees of tip per row. Scrubbing moves
+  every row at once, so at that depth a single notch swung fifteen rows through
+  a large arc, each re-rasterising its own blur — the column heaved rather than
+  advanced. The curve is still there, it just reads as a gentle bow now instead
+  of a barrel, and one notch moves the eye about a third as far.
+*/
+const WHEEL_STEP = 5;
+const WHEEL_MAX = 24;
+const WHEEL_PULL = 18;
 /** How fast the foreshortening approaches its ceiling. Larger = later. */
 const WHEEL_DECAY = 6.6;
 
@@ -250,8 +261,8 @@ function pose(d: number, side: Side, reduced: boolean | null, live = false) {
     // bottom of an upcoming one does.
     rotateX: -side * tip,
     y: -side * pull,
-    scale: Math.max(0.86, 1 - d * 0.012),
-    opacity: Math.max(0.42, 1 - d * 0.055),
+    scale: Math.max(0.93, 1 - d * 0.006),
+    opacity: Math.max(0.55, 1 - d * 0.038),
     /*
       The rim goes soft. Chosen deliberately over a flatter, more legible
       curve — the far end of the day is context, and the seat is the work.
@@ -793,7 +804,6 @@ function RegisterInner({
   focusIndex,
   onRecall,
   onFloating,
-  onLive,
 }: {
   day: DayModel;
   log: DailyLog | null;
@@ -803,12 +813,7 @@ function RegisterInner({
   onRecall: (blockIndex: number) => void;
   /** A habit with no block of its own — committed in a sheet instead. */
   onFloating: (id: HabitKey) => void;
-  /** Raised while a scrub is running, so the wheel can drop its stagger. */
-  onLive: (active: boolean) => void;
 }) {
-  // Rebuilt only when the day model actually changes, not on every render the
-  // gesture causes — `pick` closes over these, so an unstable identity also
-  // re-created the callback and every handler on the row.
   const { blockOf, endedOf, floating } = useMemo(() => {
     const b = new Map<HabitKey, number>();
     const e = new Map<HabitKey, boolean>();
@@ -822,214 +827,108 @@ function RegisterInner({
   }, [day]);
   const reduced = useReducedMotion();
   /*
-    Where the wheel is parked. One marker, not a flag per letter — two habits
+    Where the wheel is parked. One marker, not a flag per glyph — two habits
     can share a block, and two elements sharing a layoutId is how you get
     Motion animating a marker to a place it is also leaving.
   */
   const seatedId = habits.find((h) => blockOf.get(h.id) === focusIndex)?.id;
 
   /*
-    Scrub. Press anywhere on the register and slide sideways: the glyph nearest
-    the finger becomes the focused block, so the end of the day is one
-    continuous gesture instead of tap, throw, tap, throw.
+    The marker answers the tap before the wheel does.
 
-    Selection is by nearest centre, not by what is under the point. The event
-    target is no use — a touch pointer is implicitly captured by whatever took
-    the pointerdown, so it names the first glyph for the whole drag — and
-    point hit-testing drops the gaps between glyphs, which made the row stutter
-    and swallowed the first letter outright, since the gesture only engages
-    after ten pixels and that is already past the letter you started on.
+    During a spin the seat passes through blocks that own no habit — Lunch,
+    Breakfast — so a marker driven purely by the seated block blinks out for
+    the whole flight and pops in at the end. On a tap it glides straight to the
+    tapped icon instead, on the same layout spring, and the wheel arrives
+    underneath it; once the seat catches up the optimistic state dissolves
+    without a pixel moving. The timeout is the escape hatch for a spin that
+    never lands where the tap said (the user grabbed the wheel mid-flight).
   */
-  const rowRef = useRef<HTMLDivElement>(null);
-  const marks = useRef<{ id: string; cx: number }[]>([]);
-  const scrubbing = useRef(false);
-  const scrubbed = useRef(false);
-  /** The cone test has run for this gesture; its verdict stands. */
-  const decided = useRef(false);
-  const startAt = useRef<{ x: number; y: number } | null>(null);
-  const lastPicked = useRef<string | null>(null);
-
-  const pick = useCallback(
-    (id: HabitKey) => {
-      if (id === lastPicked.current) return;
-      const idx = blockOf.get(id);
-      const isFloating = floating.has(id);
-      // Not scheduled today: nothing to open, and skipping it keeps the slide
-      // continuous rather than stalling on a dead letter.
-      if (idx == null && !isFloating) return;
-      lastPicked.current = id;
-      haptic(6);
-      if (idx != null) onRecall(idx);
-      else onFloating(id);
-    },
-    [blockOf, floating, onRecall, onFloating],
-  );
-
-  /** Whichever glyph centre the finger is closest to, gaps included. */
-  const nearest = (x: number) => {
-    let best: string | undefined;
-    let bestD = Infinity;
-    for (const m of marks.current) {
-      const d = Math.abs(m.cx - x);
-      if (d < bestD) {
-        bestD = d;
-        best = m.id;
-      }
+  const [pending, setPending] = useState<HabitKey | null>(null);
+  useEffect(() => {
+    if (!pending) return;
+    if (seatedId === pending) {
+      setPending(null);
+      return;
     }
-    return best;
-  };
+    const t = window.setTimeout(() => setPending(null), 900);
+    return () => window.clearTimeout(t);
+  }, [pending, seatedId]);
+  const markerId = pending ?? seatedId;
 
+  /*
+    Taps, not a scrub.
+
+    The slide picked whatever the finger crossed, which was fine for anchored
+    letters and wrong for floating ones, and it forced this row to own
+    horizontal touch outright — the surface gesture was dead across the whole
+    bottom of the screen. Six spread-out 44px icons do the same job without
+    owning anything, and the wheel spinning to the tapped block carries the
+    continuity the slide used to fake.
+  */
   return (
-    <div
-      /*
-        touch-none, and it is load-bearing. The drag ancestor is marked
-        touch-action: pan-x, so the browser owns horizontal gestures — and the
-        moment a scrub grew past a few pixels it claimed the gesture and fired
-        pointercancel, killing the event stream after exactly one move. Taking
-        horizontal touch outright here is what lets the slide run; the vertical
-        stack swipe still works because Motion drags from pointer events, which
-        keep flowing.
-      */
-      /*
-        data-deck="off": this row owns horizontal touch, so the surface grid
-        must not arm over it. A DOM-ancestry test rather than a coordinate one,
-        so it survives every future layout change and needs no coordination
-        between the two consumers.
-      */
-      data-deck="off"
-      className="flex touch-none items-center justify-center px-5"
-      onPointerDown={(e) => {
-        // The row cannot reflow mid-gesture, so one read at the top is enough.
-        marks.current = [
-          ...(rowRef.current?.querySelectorAll<HTMLElement>("[data-habit]") ??
-            []),
-        ].map((el) => {
-          const r = el.getBoundingClientRect();
-          return { id: el.dataset.habit as string, cx: r.x + r.width / 2 };
-        });
-        startAt.current = { x: e.clientX, y: e.clientY };
-        scrubbing.current = false;
-        scrubbed.current = false;
-        decided.current = false;
-        lastPicked.current = null;
-      }}
-      onPointerMove={(e) => {
-        const s = startAt.current;
-        if (!s) return;
-        const dx = e.clientX - s.x;
-        const dy = e.clientY - s.y;
-
-        /*
-          Decide once, on a forgiving cone, and then stand by it.
-
-          The old test — |dx| ≥ 10 and |dx| > |dy| — was re-evaluated on every
-          single move until it passed, which meant a gesture that began with
-          any vertical drift could never engage the scrub, not even after it
-          straightened out. A 110×110 diagonal from the first letter moved
-          nothing at all: too vertical for the register, and the register had
-          already swallowed the touch. Mouse drags are straight; thumbs are
-          not, and this is a control you use with a thumb at 22:00.
-
-          So: wait for ten pixels of travel in any direction, then ask once
-          whether this is more sideways than not, on a ±59° cone rather than a
-          45° one. A verdict of "no" hands the gesture to the surface stack for
-          the rest of its life, which is what makes a vertical swipe that
-          starts on the register still reach the record.
-        */
-        if (!decided.current) {
-          if (Math.hypot(dx, dy) < 10) return;
-          decided.current = true;
-          scrubbing.current = Math.abs(dx) > Math.abs(dy) * 0.6;
-          if (scrubbing.current) {
-            scrubbed.current = true;
-            onLive(true);
-          }
-        }
-        if (!scrubbing.current) return;
-        const id = nearest(e.clientX);
-        if (id) pick(id);
-      }}
-      onPointerUp={() => {
-        startAt.current = null;
-        if (scrubbing.current) onLive(false);
-        scrubbing.current = false;
-      }}
-      onPointerCancel={() => {
-        startAt.current = null;
-        if (scrubbing.current) onLive(false);
-        scrubbing.current = false;
-      }}
-    >
-      {/* Centred, and no longer a scroll box: scrubbing owns the horizontal
-          gesture here, so a scroller would only fight it. */}
-      <div ref={rowRef} className="flex gap-2 overflow-hidden">
-        {habits.map((h) => {
-          const k = h.id;
-          const idx = blockOf.get(k);
-          const isFloating = floating.has(k);
-          const scheduled = idx != null || isFloating;
-          const done = log?.habits?.[k] === true;
-          return (
-            <button
-              key={k}
-              type="button"
-              data-habit={k}
-              title={h.label}
-              // aria-disabled, not disabled: the letter still reads and still
-              // takes a press, it simply has no block to open.
-              aria-disabled={!scheduled}
-              aria-label={`${h.label} — ${
-                !scheduled
-                  ? "not scheduled today"
-                  : done
-                    ? "done, open to change"
-                    : "not logged, open to log"
-              }`}
-              onClick={() => {
-                // The slide already selected as it went.
-                if (scrubbed.current) return;
-                pick(k);
-              }}
-              className="relative flex min-h-11 items-center px-1"
-            >
-              {/* The marker is one element that moves between letters rather
-                  than one per letter that fades — a shared layoutId is what
-                  makes it slide under the finger instead of blinking across. */}
-              {k === seatedId ? (
-                <motion.span
-                  /*
-                    No shared element under reduced motion. Motion drops the
-                    transform half of a layout animation there, so a shared
-                    layoutId degrades to a jump-cut with no crossfade — worse
-                    than two elements fading independently, which is what this
-                    becomes instead.
-                  */
-                  layoutId={reduced ? undefined : "register-seat"}
-                  initial={reduced ? { opacity: 0 } : false}
-                  animate={{ opacity: 1 }}
-                  aria-hidden
-                  className="absolute inset-y-[9px] -inset-x-[3px] rounded-sm border border-line-mid bg-surface-2"
-                  transition={NOTCH}
-                />
-              ) : null}
-              <HabitGlyph
-                habit={k}
-                code={h.code}
-                seated={k === seatedId}
-                state={
-                  !scheduled
-                    ? "unscheduled"
-                    : done
-                      ? "done"
-                      : endedOf.get(k)
-                        ? "overdue"
-                        : "pending"
-                }
+    <div className="flex w-full items-center justify-between px-7">
+      {habits.map((h) => {
+        const k = h.id;
+        const idx = blockOf.get(k);
+        const isFloating = floating.has(k);
+        const scheduled = idx != null || isFloating;
+        const done = log?.habits?.[k] === true;
+        return (
+          <button
+            key={k}
+            type="button"
+            title={h.label}
+            // aria-disabled, not disabled: the glyph still reads and still
+            // takes a press, it simply has no block to open.
+            aria-disabled={!scheduled}
+            aria-label={`${h.label} — ${
+              !scheduled
+                ? "not scheduled today"
+                : done
+                  ? "done, open to change"
+                  : "not logged, open to log"
+            }`}
+            onClick={() => {
+              if (!scheduled) return;
+              haptic(6);
+              if (idx != null) {
+                setPending(k);
+                onRecall(idx);
+              } else {
+                onFloating(k);
+              }
+            }}
+            className="relative flex min-h-11 min-w-11 items-center justify-center"
+          >
+            {markerId === k ? (
+              <motion.span
+                layoutId={reduced ? undefined : "register-seat"}
+                initial={reduced ? { opacity: 0 } : false}
+                animate={{ opacity: 1 }}
+                aria-hidden
+                className="absolute inset-x-0 inset-y-[4px] rounded-sm border border-line-mid bg-surface-2"
+                transition={NOTCH}
               />
-            </button>
-          );
-        })}
-      </div>
+            ) : null}
+            <HabitGlyph
+              habit={k}
+              code={h.code}
+              icon={h.icon}
+              seated={seatedId === k}
+              state={
+                !scheduled
+                  ? "unscheduled"
+                  : done
+                    ? "done"
+                    : endedOf.get(k)
+                      ? "overdue"
+                      : "pending"
+              }
+            />
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1307,7 +1206,9 @@ function FocusBlock({
           ) : null}
 
           {b.fields.includes("trainingNote") ? (
-            <div className="space-y-2">
+            <div className="space-y-4">
+              {/* The numbers live in the R sheet — this card is the session
+                  you are in, not the ledger. */}
               <NoteField
                 label="Session"
                 placeholder="6 × 800 @ 5:42"
@@ -1447,6 +1348,7 @@ export function DayScreen() {
   const [dataVersion, setDataVersion] = useState(0);
   /** A session type whose whole note history is open. */
   const [thread, setThread] = useState<string | null>(null);
+  const [trendsOpen, setTrendsOpen] = useState(false);
   /** A floating habit being committed in its own sheet. */
   const [floatingId, setFloatingId] = useState<HabitKey | null>(null);
   /** A recalled block index, or null when following the live day. */
@@ -1468,15 +1370,40 @@ export function DayScreen() {
     one gesture away from a live instrument. It costs one line here and one in
     the key handler.
   */
+  /*
+    One step of memory, and only one, so that a vertical gesture is its own
+    inverse.
+
+    HOME-snapping alone made the undo gesture not the undo. The rows are 4, 2
+    and 1 columns wide, so from `system` [0,3] a swipe down clamps to row 1 and
+    HOME-snaps to `record`; swiping straight back up HOME-snaps row 0 to `day`.
+    A gesture and its exact mirror left you two surfaces from where you started,
+    and no amount of practice fixes that because the rule itself is the problem.
+    Same for `sessions` -> down -> `history` -> up -> `record`.
+
+    Full per-row memory would fix it but breaks the invariant the HOME snap was
+    protecting: that a row always opens at a known column, so the map stays
+    holdable. So this remembers exactly the row it just left. Return to it as
+    the very next row change and you land where you were; arrive from anywhere
+    else and you get HOME, unchanged.
+  */
+  const leftFrom = useRef<{ row: number; col: number } | null>(null);
+
   const goRow = useCallback(
     (next: number) => {
       const r = clamp(next, GRID.length - 1);
       if (r === row) return;
+      const back = leftFrom.current;
+      leftFrom.current = { row, col };
       setMove({ axis: "y", dir: r > row ? 1 : -1 });
       setRow(r);
-      setCol(HOME[r]);
+      setCol(
+        back && back.row === r
+          ? clamp(back.col, GRID[r].length - 1)
+          : HOME[r],
+      );
     },
-    [row],
+    [row, col],
   );
 
   const goCol = useCallback(
@@ -1579,14 +1506,10 @@ export function DayScreen() {
     // A sheet is a detour, not a destination: while one is open the grid holds
     // still. Under reduced motion the whole horizontal axis stays available by
     // keyboard but not by gesture.
-    enabled: pickedDate == null && floatingId == null && thread == null,
+    enabled:
+      pickedDate == null && floatingId == null && thread == null && !trendsOpen,
   });
 
-  const handleLive = useCallback((active: boolean) => {
-    setLive(active);
-    setScrubbing(active);
-    if (active) claimed.current = true;
-  }, []);
   /** The day surface has been shown once; its entrance is spent. */
   const entered = useRef(false);
   useEffect(() => {
@@ -1618,11 +1541,21 @@ export function DayScreen() {
     if (page !== "day") headingRef.current?.focus();
   }, [page]);
 
-  // Editing habits in the settings sheet must redraw the spine underneath it.
+  // Editing habits or the routine in the settings sheets must redraw the
+  // spine underneath them. A fresh habits array is enough for both: the day
+  // model is rebuilt whenever it changes, and blocksForDate reads the routine
+  // live on that rebuild.
   useEffect(() => {
-    const reload = () => setHabits(getHabits());
+    const reload = () => {
+      setHabits(getHabits());
+      setDataVersion((v) => v + 1);
+    };
     window.addEventListener(HABITS_CHANGED, reload);
-    return () => window.removeEventListener(HABITS_CHANGED, reload);
+    window.addEventListener(ROUTINE_CHANGED, reload);
+    return () => {
+      window.removeEventListener(HABITS_CHANGED, reload);
+      window.removeEventListener(ROUTINE_CHANGED, reload);
+    };
   }, []);
 
   const habitById = useMemo(
@@ -1702,8 +1635,12 @@ export function DayScreen() {
       if (returnTimer.current) window.clearTimeout(returnTimer.current);
       returnTimer.current = window.setTimeout(
         () => {
+          // The trip back is the same journey as the trip out: the wheel
+          // rolls home through the blocks between, rather than cutting. Under
+          // reduced motion spinHome degrades to the straight land inside
+          // spinTo itself.
           restoring.current = true;
-          setSelected(null);
+          spinHome.current();
         },
         reduced ? 200 : 620,
       );
@@ -1732,6 +1669,77 @@ export function DayScreen() {
   const focusIndex = selected != null && day.blocks[selected] ? selected : day.focusIndex;
   const focus = day.blocks[focusIndex];
   const recalled = focusIndex !== day.focusIndex;
+
+  /*
+    Spin the wheel to a tapped icon rather than teleporting.
+
+    Every intermediate block takes the seat for a beat on an ease-in schedule —
+    the early notches land almost together, the late ones spread out — which on
+    screen is a fast flick that decelerates into the target, a rolodex settling
+    rather than a cut. The live flag is raised for the duration so the seat
+    keeps its fixed shell and the rim drops its blur; without it every notch
+    would re-rasterise a column of blurred rows.
+  */
+  const spinTimers = useRef<number[]>([]);
+  /** Always the current-day way home; refs because setHabit closes early. */
+  const spinHome = useRef<() => void>(() => {});
+  const clearSpin = useCallback(() => {
+    if (spinTimers.current.length === 0) return;
+    for (const t of spinTimers.current) window.clearTimeout(t);
+    spinTimers.current = [];
+    /*
+      A cancelled flight must lower its own flags. The final timer was the only
+      other writer of scrubbing, so cancelling it — tap the same icon twice,
+      tap the block the wheel is passing, grab the surface mid-spin — left the
+      seat as its inert preview shell permanently: no latch, no fields, and
+      nothing else ever set it back.
+    */
+    setLive(false);
+    setScrubbing(false);
+  }, []);
+  useEffect(() => clearSpin, [clearSpin]);
+  const spinTo = useCallback(
+    (target: number) => {
+      clearSpin();
+      if (target === focusIndex || !day.blocks[target]) return;
+      // Landing on the live block is a return, not a recall.
+      const land = (idx: number) =>
+        setSelected(idx === day.focusIndex ? null : idx);
+      const dir = target > focusIndex ? 1 : -1;
+      const steps: number[] = [];
+      for (let i = focusIndex + dir; i !== target; i += dir) steps.push(i);
+      steps.push(target);
+      if (reduced || steps.length === 1) {
+        land(target);
+        return;
+      }
+      setLive(true);
+      setScrubbing(true);
+      /*
+        Tuned on the phone: 620ms with a 2.4 exponent spent a third of every
+        flight easing into the last notch, which read as lag the moment taps
+        came quickly — each new tap restarts from wherever the wheel is, so a
+        heavy tail keeps it perpetually behind the finger. Shorter, flatter,
+        still decelerating.
+      */
+      const total = Math.min(420, 160 + 40 * steps.length);
+      steps.forEach((idx, i) => {
+        const at = total * Math.pow((i + 1) / steps.length, 1.8);
+        const id = window.setTimeout(() => {
+          haptic(3);
+          land(idx);
+          if (i === steps.length - 1) {
+            spinTimers.current = [];
+            setLive(false);
+            setScrubbing(false);
+          }
+        }, at);
+        spinTimers.current.push(id);
+      });
+    },
+    [focusIndex, day, reduced, clearSpin],
+  );
+  spinHome.current = () => spinTo(day.focusIndex);
   const showFocus =
     focus &&
     (recalled || !(day.state === "after" && day.graceIndex < 0)) &&
@@ -1871,6 +1879,9 @@ export function DayScreen() {
         }}
         dragMomentum={false}
         onDragStart={() => {
+          // A spin still in flight would keep ticking under the drag and drop
+          // the live flag mid-gesture when its last step fired.
+          clearSpin();
           claimed.current = false;
           setLive(true);
         }}
@@ -1910,8 +1921,8 @@ export function DayScreen() {
             documented to keep under `none`. While a field is focused this falls
             back to the inherited `pan-x` and iOS gets whatever it wants: the
             grid is already disarmed over inputs, the stack's drag already
-            exempts them, and the register keeps its own `touch-none` regardless
-            so the scrub is unaffected mid-edit. touch-action is read at touch
+            exempts them, and the register is taps only now, so nothing else
+            depends on this element's value. touch-action is read at touch
             start and focus changes on tap, so the next touch sees the new value.
           */
           className={`relative h-full ${editing ? "" : "touch-none"}`}
@@ -2041,7 +2052,10 @@ export function DayScreen() {
                         onPatch={patch}
                         onRecoil={fireRecoil}
                         recalled={recalled}
-                        onReturn={() => setSelected(null)}
+                        onReturn={() => {
+                          restoring.current = true;
+                          spinHome.current();
+                        }}
                         dir={dir}
                         reduced={reduced}
                       />
@@ -2099,9 +2113,8 @@ export function DayScreen() {
                     log={log}
                     habits={habits}
                     focusIndex={focusIndex}
-                    onRecall={setSelected}
+                    onRecall={spinTo}
                     onFloating={setFloatingId}
-                    onLive={handleLive}
                   />
                 </motion.div>
               </motion.div>
@@ -2122,6 +2135,15 @@ export function DayScreen() {
                     <div className="drop-when-short mt-auto shrink-0 pt-4 pb-1">
                       <WeekLoad today={clock.date} version={dataVersion} />
                     </div>
+                    {/* Every chart, one place — the sheet scrolls, the page
+                        cannot, so the full set lives behind one tap. */}
+                    <button
+                      type="button"
+                      onClick={() => setTrendsOpen(true)}
+                      className="mono-xs min-h-11 shrink-0 text-center text-ink-3 hover:text-ink"
+                    >
+                      all trends →
+                    </button>
                   </>
                 ) : page === "history" ? (
                   <HistoryScreen
@@ -2210,10 +2232,17 @@ export function DayScreen() {
         onSaved={() => setDataVersion((v) => v + 1)}
       />
       <SessionThread label={thread} onClose={() => setThread(null)} />
+      <TrendsSheet
+        open={trendsOpen}
+        onClose={() => setTrendsOpen(false)}
+        today={clock.date}
+        version={dataVersion}
+      />
       <FloatingHabitSheet
         habit={floatingId ? habitById.get(floatingId) : undefined}
         log={log}
         onChange={setHabit}
+        onPatch={patch}
         onClose={() => setFloatingId(null)}
       />
     </motion.main>
