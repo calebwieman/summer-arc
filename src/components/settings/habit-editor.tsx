@@ -285,6 +285,24 @@ export function HabitEditor() {
 
   useEffect(() => setHabits(getAllHabits()), []);
 
+  /*
+    Archived habits are kept in the registry but not in this list.
+
+    Deleting a built-in archives it rather than removing it, because
+    `getAllHabits` reconciles missing built-ins back in and a hard delete would
+    reappear on the next read. That tombstone is right — but the editor was
+    rendering the whole registry, archived included, so confirming a delete left
+    the row exactly where it was and the button read as broken. It was the only
+    honest reading: nothing on screen changed.
+
+    So the row leaves, which is what delete means, and the archived ones get a
+    line of their own at the foot where they can be brought back. Nothing is
+    lost either way: history keeps its entries regardless, because a day stores
+    habit ids and not definitions.
+  */
+  const active = habits.filter((h) => !h.archived);
+  const archived = habits.filter((h) => h.archived);
+
   const commit = useCallback((next: HabitDef[]) => {
     const ordered = next.map((h, i) => ({ ...h, order: i }));
     setHabits(ordered);
@@ -309,24 +327,29 @@ export function HabitEditor() {
     <section>
       <h3 className="kicker text-center">Habits</h3>
       <p className="meta mt-1.5 text-center">
-        {habits.length} tracked · order sets the register
+        {active.length} tracked · order sets the register
       </p>
 
       <div className="mt-4 space-y-2">
-        {habits.map((h, i) => (
+        {active.map((h, i) => (
           <HabitRow
             key={h.id}
             habit={h}
             index={i}
-            count={habits.length}
+            count={active.length}
             onChange={(next) =>
               commit(habits.map((x) => (x.id === h.id ? next : x)))
             }
             onMove={(dir) => {
+              // Indices address the visible list; the swap has to happen in the
+              // stored one, which may have archived entries interleaved.
               const j = i + dir;
-              if (j < 0 || j >= habits.length) return;
+              if (j < 0 || j >= active.length) return;
+              const a = habits.findIndex((x) => x.id === active[i].id);
+              const bIdx = habits.findIndex((x) => x.id === active[j].id);
+              if (a < 0 || bIdx < 0) return;
               const next = [...habits];
-              [next[i], next[j]] = [next[j], next[i]];
+              [next[a], next[bIdx]] = [next[bIdx], next[a]];
               haptic(6);
               commit(next);
             }}
@@ -358,7 +381,7 @@ export function HabitEditor() {
           <Plus className="h-3.5 w-3.5" />
           add habit
         </button>
-        {habits.length === 0 ? (
+        {active.length === 0 ? (
           <button
             type="button"
             onClick={() => commit(BUILT_INS)}
@@ -368,6 +391,40 @@ export function HabitEditor() {
           </button>
         ) : null}
       </div>
+
+      {/* Retired, and reversible. A built-in cannot be truly deleted — the
+          registry reconciles it back — so this is where the ones you have put
+          away actually live, rather than sitting in the list pretending the
+          delete did not work. */}
+      {archived.length > 0 ? (
+        <div className="mt-6 border-t border-line-soft pt-4">
+          <p className="meta">Retired</p>
+          <div className="mt-2 space-y-1.5">
+            {archived.map((h) => (
+              <div key={h.id} className="flex items-center gap-3">
+                <span className="mono-xs w-6 shrink-0 text-ink-4">{h.code}</span>
+                <span className="mono-xs flex-1 truncate text-ink-3">
+                  {h.label}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    haptic(8);
+                    commit(
+                      habits.map((x) =>
+                        x.id === h.id ? { ...x, archived: false } : x,
+                      ),
+                    );
+                  }}
+                  className="mono-xs min-h-11 shrink-0 px-2 text-ink-3 hover:text-ink"
+                >
+                  bring back
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
