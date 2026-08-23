@@ -47,22 +47,23 @@ const WIND_DOWN: Block = {
 };
 
 /*
-  The training week, built for Hyrox with no race booked — so it is a base and
-  build week, not a sharpening one, and the shape matters more than any single
-  session.
+  The training week, built for Hyrox with Dallas (Nov 18–22) as the target —
+  still a base and build week until a bib is actually bought, so the shape
+  matters more than any single session.
 
-  The race is eight 1km runs with a station between each, which is why running
-  gets three days and two of them are aerobic: the limiter for almost everyone
-  is not the stations, it is running at all after them. So one quality day, one
-  easy day, one long day, two station days at the Hyrox gym, and one strength
-  day. Everything else is running at OU.
-
-  The order is deliberate. Wednesday is easy because it sits between the two
-  station days, which are the two hardest sessions of the week. Strength lands
-  on Friday, one lighter day before the long run, rather than stacked against a
-  station day. Sunday has no training block at all — a rest day the app scores
-  as a rest day rather than a miss, which is what the anchor-by-kind rule in
-  `habits.ts` buys.
+  The station work moved on campus for the fall: CEREMONY HYROX at the Sarkeys
+  Fitness Center (4 minutes from South Hall, free with the student membership)
+  runs Monday and Wednesday at 5:30 PM, so those are the two station days and
+  they are evenings now, not mornings. That forces the one real compromise in
+  the week: any morning session sits ~11 hours after the previous evening's
+  class. The easy run takes the Tuesday slot so the first station day is
+  followed by recovery; the quality day lands Thursday, where the only cost is
+  a short night after Wednesday's class rather than a stacked hard day.
+  Strength stays Friday — one lighter day before the long run — and the race
+  is eight 1km runs with a station between each, which is why running still
+  gets three days and two of them are aerobic. Sunday has no training block at
+  all — a rest day the app scores as a rest day rather than a miss, which is
+  what the anchor-by-kind rule in `habits.ts` buys.
 */
 
 const INTERVALS: Block = {
@@ -90,11 +91,13 @@ const STRENGTH: Block = {
 };
 
 const HYROX: Block = {
-  start: "05:30",
-  end: "07:15",
+  // CEREMONY HYROX, Sarkeys Fitness Center Flex Studio. The 5:30 class; the
+  // 6:30 runs as a fallback when registration misses — same block either way.
+  start: "17:30",
+  end: "18:15",
   label: "Hyrox Session",
   kind: "training",
-  brief: "Stations + compromised runs — log the splits",
+  brief: "CEREMONY HYROX @ Sarkeys FC — register on fitrec.ou.edu (closes 1h before) · log the splits",
 };
 
 const LONG_RUN: Block = {
@@ -105,51 +108,121 @@ const LONG_RUN: Block = {
   brief: "75–90 min steady · last 15 at race effort",
 };
 
-/** Mon / Wed / Fri, everything up to the evening. Training varies by day. */
-function mwfDay(training: Block): Block[] {
+/**
+ * The class blocks, times from the registrar as of Aug 23. ENGL is section
+ * 017 (Weryackwe) after the online conversion was traded away for the last
+ * in-person seat; its brief carries the walk, because Sarkeys is the far
+ * corner of campus and the block before it has to actually end.
+ */
+const ENGL: Block = {
+  start: "11:00",
+  end: "11:50",
+  label: "ENGL 1213",
+  kind: "class",
+  brief: "Sarkeys Energy Ctr P0203 (P level, below lobby) · Weryackwe · leave South Hall 10:38",
+};
+
+const FMS: Block = {
+  start: "13:00",
+  end: "13:50",
+  label: "FMS 1013",
+  kind: "class",
+  brief: "Dale Hall 0128 · Looking at Movies 8e is Inclusive Access — already billed",
+};
+
+const SPAN_MTWR: Block = {
+  start: "15:00",
+  end: "15:50",
+  label: "SPAN 1115",
+  kind: "class",
+  brief: "Kaufman Hall 0132 · Cortest",
+};
+
+const SPAN_FRI: Block = {
+  start: "15:00",
+  end: "15:50",
+  label: "SPAN 1115",
+  kind: "class",
+  brief: "Friday is the video-conference session — link in Canvas, join from anywhere",
+};
+
+const POLY: Block = {
+  start: "10:30",
+  end: "11:45",
+  label: "POLY 1003",
+  kind: "class",
+  brief: "Carson Engr Ctr 0438 — 4th floor · Wei Li · 15 min walk, leave 10:08",
+};
+
+/**
+ * Mon / Wed / Fri up to the class run. Mornings differ: Friday keeps a 5 AM
+ * strength hour, Monday and Wednesday train in the evening class instead, so
+ * their freed hour becomes the day's first Deep Work — hardest work first,
+ * same wake either way.
+ */
+function mwfMorning(training?: Block): Block[] {
+  return [
+    WAKE,
+    training ?? { start: "05:00", end: "06:20", label: "Deep Work", kind: "work" },
+    { start: "06:20", end: "07:00", label: "Quiet Time", kind: "personal" },
+    { start: "07:00", end: "07:30", label: "Breakfast", kind: "personal" },
+    { start: "07:30", end: "09:00", label: "Admin", kind: "work" },
+    // Ends short of the hour on purpose: the ENGL walk starts at 10:38.
+    { start: "09:00", end: "10:35", label: "Deep Work", kind: "work" },
+    ENGL,
+    { start: "12:00", end: "12:50", label: "Lunch", kind: "personal" },
+    FMS,
+  ];
+}
+
+/** Mon / Wed — afternoon into the Sarkeys class, dinner after. */
+function hyroxEvening(rest: Block[]): Block[] {
+  return [
+    SPAN_MTWR,
+    { start: "16:10", end: "17:10", label: "Content", kind: "work" },
+    HYROX,
+    { start: "18:30", end: "19:15", label: "Dinner", kind: "personal" },
+    ...rest,
+    WIND_DOWN,
+  ];
+}
+
+const MON_EVENING = hyroxEvening([
+  { start: "19:15", end: "21:15", label: "Build Block", kind: "work" },
+]);
+
+/** Wednesday — Build Block is cut short for BCM. */
+const WED_EVENING = hyroxEvening([
+  { start: "19:15", end: "20:00", label: "Build Block", kind: "work" },
+  { start: "20:30", end: "21:15", label: "BCM Renown", kind: "personal" },
+]);
+
+/** Friday — trained at 5 AM, so the evening runs long. */
+const FRI_EVENING: Block[] = [
+  SPAN_FRI,
+  { start: "16:30", end: "17:30", label: "Content", kind: "work" },
+  { start: "17:30", end: "18:30", label: "Dinner", kind: "personal" },
+  { start: "18:30", end: "21:15", label: "Build Block", kind: "work" },
+  WIND_DOWN,
+];
+
+/** Tue / Thu — morning run (easy after Monday's class, quality Thursday). */
+function trDay(training: Block): Block[] {
   return [
     WAKE,
     training,
     { start: "06:20", end: "07:00", label: "Quiet Time", kind: "personal" },
-    { start: "07:00", end: "07:30", label: "Breakfast", kind: "personal" },
-    { start: "07:30", end: "09:00", label: "Admin", kind: "work" },
-    { start: "09:00", end: "09:50", label: "ENGL 1213", kind: "class" },
-    { start: "10:00", end: "12:20", label: "Deep Work", kind: "work" },
-    { start: "12:20", end: "13:00", label: "Lunch", kind: "personal" },
-    { start: "13:00", end: "13:50", label: "FMS 1013", kind: "class" },
-    { start: "15:00", end: "15:50", label: "SPAN 1115", kind: "class" },
-    { start: "16:30", end: "17:30", label: "Content", kind: "work" },
-    { start: "17:30", end: "18:30", label: "Dinner", kind: "personal" },
+    { start: "07:00", end: "07:45", label: "Breakfast", kind: "personal" },
+    { start: "07:45", end: "10:05", label: "Deep Work", kind: "work" },
+    POLY,
+    { start: "11:50", end: "12:15", label: "Lunch", kind: "personal" },
+    // Second Deep Work block of the day — the habit is anchored to the first only.
+    { start: "12:15", end: "15:00", label: "Deep Work", kind: "work" },
+    SPAN_MTWR,
+    { start: "18:30", end: "21:15", label: "Build Block", kind: "work" },
+    WIND_DOWN,
   ];
 }
-
-/** Mon / Fri evening. */
-const MF_EVENING: Block[] = [
-  { start: "18:30", end: "21:15", label: "Build Block", kind: "work" },
-  WIND_DOWN,
-];
-
-/** Wednesday evening — Build Block is cut short for BCM. */
-const WED_EVENING: Block[] = [
-  { start: "18:30", end: "20:00", label: "Build Block", kind: "work" },
-  { start: "20:30", end: "21:15", label: "BCM Renown", kind: "personal" },
-  WIND_DOWN,
-];
-
-/** Tue / Thu — the two station days at the Hyrox gym. */
-const TR_DAY: Block[] = [
-  WAKE,
-  HYROX,
-  { start: "07:15", end: "07:45", label: "Quiet Time", kind: "personal" },
-  { start: "07:45", end: "10:30", label: "Deep Work", kind: "work" },
-  { start: "10:30", end: "11:45", label: "POLY 1003", kind: "class" },
-  { start: "11:50", end: "12:15", label: "Lunch", kind: "personal" },
-  // Second Deep Work block of the day — the habit is anchored to the first only.
-  { start: "12:15", end: "15:00", label: "Deep Work", kind: "work" },
-  { start: "15:00", end: "16:15", label: "SPAN 1115", kind: "class" },
-  { start: "18:30", end: "21:15", label: "Build Block", kind: "work" },
-  WIND_DOWN,
-];
 
 const SATURDAY: Block[] = [
   WAKE,
@@ -171,11 +244,11 @@ const SUNDAY: Block[] = [
 /** The weekly template, keyed by `Date.prototype.getDay()`. */
 export const WEEKLY_SCHEDULE: Record<Weekday, Block[]> = {
   0: SUNDAY,
-  1: [...mwfDay(INTERVALS), ...MF_EVENING],
-  2: TR_DAY,
-  3: [...mwfDay(EASY_RUN), ...WED_EVENING],
-  4: TR_DAY,
-  5: [...mwfDay(STRENGTH), ...MF_EVENING],
+  1: [...mwfMorning(), ...MON_EVENING],
+  2: trDay(EASY_RUN),
+  3: [...mwfMorning(), ...WED_EVENING],
+  4: trDay(INTERVALS),
+  5: [...mwfMorning(STRENGTH), ...FRI_EVENING],
   6: SATURDAY,
 };
 
