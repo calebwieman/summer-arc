@@ -116,9 +116,19 @@ export function SystemScreen() {
       <RoutineSection />
       <Notifications />
       <Archive />
+      {/* Lives in the footer block so it borrows the mt-auto slack instead of
+          pushing the build stamp off the 852px floor. */}
+      <a
+        href="/plan"
+        onClick={() => haptic(8)}
+        className="mono-xs mt-auto flex min-h-11 shrink-0 items-center justify-between rounded-sm border border-line-mid px-4 text-ink-2 hover:border-accent hover:text-ink"
+      >
+        <span>the master plan — why everything is here</span>
+        <span aria-hidden>→</span>
+      </a>
       {/* Which build is actually running, readable from the phone. It is the
           only way to tell whether a deploy has landed. */}
-      <p className="mono-xs mt-auto shrink-0 text-center text-ink-4">
+      <p className="mono-xs shrink-0 text-center text-ink-4">
         build {process.env.NEXT_PUBLIC_BUILD_SHA} ·{" "}
         {process.env.NEXT_PUBLIC_BUILD_AT} UTC
       </p>
