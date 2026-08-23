@@ -47,33 +47,24 @@ const WIND_DOWN: Block = {
 };
 
 /*
-  The training week, built for Hyrox with Dallas (Nov 18–22) as the target —
-  still a base and build week until a bib is actually bought, so the shape
-  matters more than any single session.
+  The training week, rebuilt hybrid — run in the morning, lift or stations in
+  the afternoon, five two-a-days. Dallas (Nov 18–22) is still the target.
 
-  The station work moved on campus for the fall: CEREMONY HYROX at the Sarkeys
-  Fitness Center (4 minutes from South Hall, free with the student membership)
-  runs Monday and Wednesday at 5:30 PM, so those are the two station days and
-  they are evenings now, not mornings. That forces the one real compromise in
-  the week: any morning session sits ~11 hours after the previous evening's
-  class. The easy run takes the Tuesday slot so the first station day is
-  followed by recovery; the quality day lands Thursday, where the only cost is
-  a short night after Wednesday's class rather than a stacked hard day.
-  Strength stays Friday — one lighter day before the long run — and the race
-  is eight 1km runs with a station between each, which is why running still
-  gets three days and two of them are aerobic. Sunday has no training block at
-  all — a rest day the app scores as a rest day rather than a miss, which is
-  what the anchor-by-kind rule in `habits.ts` buys.
+  The shape is the hybrid-athlete standard: an aerobic base of six runs
+  (four easy, one quality, one long) under three lifts and the two CEREMONY
+  HYROX classes at the Sarkeys Fitness Center (Mon/Wed 5:30 PM, free, four
+  minutes away). Runs own 6:00 AM because that is when the building opens and
+  the day's first class isn't until 10:30; lifts own the 4:10 slot because
+  Spanish ends at 3:50 next door and the evening build block starts at 6:30
+  regardless. Hard things stay separated by design: the only quality run
+  (Tuesday) is followed by the week's easiest run, the lifts sit eight-plus
+  hours after that morning's run, and Sunday's session is recovery by contract
+  — zone 1 or a walk, the day that lets seven days a week be survivable at
+  all. The ramp is the real risk of a doubles week: the easy runs start at
+  thirty-to-forty minutes and earn their length; the mileage is allowed to
+  grow, not assumed.
 */
 
-/*
-  Morning sessions start at 6:00 because that is when the Sarkeys Fitness
-  Center opens on weekdays — the old 5:00 slots assumed a gym that was not
-  actually unlocked. The indoor track (6 laps = 1km) and the weight room are
-  both behind that door, so the day now wakes 5:30 on training mornings and
-  6:00 on the class-evening days, where a 4:45 alarm bought nothing but a
-  sixteen-and-a-half-hour day in front of a hard evening session.
-*/
 const INTERVALS: Block = {
   start: "06:00",
   end: "07:00",
@@ -82,21 +73,18 @@ const INTERVALS: Block = {
   brief: "5 × 1km @ 10k effort · 2min jog — track opens 6:00",
 };
 
-const EASY_RUN: Block = {
-  start: "06:00",
-  end: "07:00",
-  label: "Easy Run",
-  kind: "training",
-  brief: "45–55 min conversational · nothing hard",
-};
+/**
+ * Every aerobic run shares one label so the sessions page and the training
+ * letter treat them as one thing; the brief carries what today's version is.
+ */
+function easyRun(end: string, brief: string): Block {
+  return { start: "06:00", end, label: "Easy Run", kind: "training", brief };
+}
 
-const STRENGTH: Block = {
-  start: "06:00",
-  end: "07:00",
-  label: "Strength",
-  kind: "training",
-  brief: "Squat · RDL · split squat · farmer carry — 4×6 heavy, clean",
-};
+/** Same idea for the iron: one label, three briefs. */
+function lift(brief: string): Block {
+  return { start: "16:10", end: "17:25", label: "Lift", kind: "training", brief };
+}
 
 const HYROX: Block = {
   // CEREMONY HYROX, Sarkeys Fitness Center Flex Studio. The 5:30 class; the
@@ -119,8 +107,8 @@ const LONG_RUN: Block = {
 /**
  * The class blocks, times from the registrar as of Aug 23. ENGL is section
  * 017 (Weryackwe) after the online conversion was traded away for the last
- * in-person seat; its brief carries the walk, because Sarkeys is the far
- * corner of campus and the block before it has to actually end.
+ * in-person seat; its brief carries the walk, because the Energy Center is
+ * the far corner of campus and the block before it has to actually end.
  */
 const ENGL: Block = {
   start: "11:00",
@@ -162,40 +150,26 @@ const POLY: Block = {
   brief: "Carson Engr Ctr 0438 — 4th floor · Wei Li · 15 min walk, leave 10:08",
 };
 
-/**
- * Mon / Wed / Fri up to the class run. Mornings differ by where training
- * lives: Friday lifts at 6:00 when the gym opens, so it wakes 5:30; Monday
- * and Wednesday train in the 5:30 PM class instead, so they wake 6:00 —
- * a 4:45 alarm on a class-evening day just made the day sixteen hours long
- * for nothing. The class run from 11:00 onward is identical everywhere.
- */
+/** The MWF class run, identical Monday through Friday from 11:00 onward. */
 const MWF_CLASSES: Block[] = [
   ENGL,
   { start: "12:00", end: "12:50", label: "Lunch", kind: "personal" },
   FMS,
 ];
 
-/** Mon / Wed morning — no session, the evening class is the training. */
-const HYROX_DAY_MORNING: Block[] = [
-  { start: "06:00", end: "06:15", label: "Wake", kind: "personal" },
-  { start: "06:15", end: "06:50", label: "Quiet Time", kind: "personal" },
-  { start: "06:50", end: "07:20", label: "Breakfast", kind: "personal" },
-  { start: "07:20", end: "08:30", label: "Admin", kind: "work" },
-  // Ends short of the hour on purpose: the ENGL walk starts at 10:38.
-  { start: "08:30", end: "10:35", label: "Deep Work", kind: "work" },
-  ...MWF_CLASSES,
-];
-
-/** Friday morning — in the weight room at open. */
-const FRI_MORNING: Block[] = [
-  { start: "05:30", end: "05:45", label: "Wake", kind: "personal" },
-  STRENGTH,
-  { start: "07:00", end: "07:30", label: "Quiet Time", kind: "personal" },
-  { start: "07:30", end: "08:00", label: "Breakfast", kind: "personal" },
-  { start: "08:00", end: "09:00", label: "Admin", kind: "work" },
-  { start: "09:00", end: "10:35", label: "Deep Work", kind: "work" },
-  ...MWF_CLASSES,
-];
+/** Mon / Wed / Fri morning — the day's first session, then the class run. */
+function mwfMorning(run: Block): Block[] {
+  return [
+    { start: "05:30", end: "05:45", label: "Wake", kind: "personal" },
+    run,
+    { start: "07:00", end: "07:30", label: "Quiet Time", kind: "personal" },
+    { start: "07:30", end: "08:00", label: "Breakfast", kind: "personal" },
+    { start: "08:00", end: "09:00", label: "Admin", kind: "work" },
+    // Ends short of the hour on purpose: the ENGL walk starts at 10:38.
+    { start: "09:00", end: "10:35", label: "Deep Work", kind: "work" },
+    ...MWF_CLASSES,
+  ];
+}
 
 /** Mon / Wed — afternoon into the Sarkeys class, dinner after. */
 function hyroxEvening(rest: Block[]): Block[] {
@@ -219,20 +193,20 @@ const WED_EVENING = hyroxEvening([
   { start: "20:30", end: "21:15", label: "BCM Renown", kind: "personal" },
 ]);
 
-/** Friday — trained at 5 AM, so the evening runs long. */
+/** Friday — the third lift of the week, straight after the online Spanish. */
 const FRI_EVENING: Block[] = [
   SPAN_FRI,
-  { start: "16:30", end: "17:30", label: "Content", kind: "work" },
-  { start: "17:30", end: "18:30", label: "Dinner", kind: "personal" },
+  lift("Full-body pump — incline press · pull · laterals · arms · carries"),
+  { start: "17:30", end: "18:15", label: "Dinner", kind: "personal" },
   { start: "18:30", end: "21:15", label: "Build Block", kind: "work" },
   WIND_DOWN,
 ];
 
-/** Tue / Thu — morning run (easy after Monday's class, quality Thursday). */
-function trDay(training: Block): Block[] {
+/** Tue / Thu — morning run, afternoon lift: the pure hybrid days. */
+function trDay(run: Block, pm: Block): Block[] {
   return [
     { start: "05:30", end: "05:45", label: "Wake", kind: "personal" },
-    training,
+    run,
     { start: "07:00", end: "07:30", label: "Quiet Time", kind: "personal" },
     { start: "07:30", end: "08:00", label: "Breakfast", kind: "personal" },
     { start: "08:00", end: "10:05", label: "Deep Work", kind: "work" },
@@ -241,6 +215,8 @@ function trDay(training: Block): Block[] {
     // Second Deep Work block of the day — the habit is anchored to the first only.
     { start: "12:15", end: "15:00", label: "Deep Work", kind: "work" },
     SPAN_MTWR,
+    pm,
+    { start: "17:30", end: "18:15", label: "Dinner", kind: "personal" },
     { start: "18:30", end: "21:15", label: "Build Block", kind: "work" },
     WIND_DOWN,
   ];
@@ -254,9 +230,23 @@ const SATURDAY: Block[] = [
   WIND_DOWN,
 ];
 
+/*
+  The seventh day. He asked for six-if-not-seven, so Sunday carries a session
+  — but it is recovery by contract, not a workout that snuck in: zone 1,
+  conversational the whole way, outdoors because the gym does not open until
+  two. If anything aches, walking the whole block still counts. The week's
+  ability to absorb twelve sessions depends on this one staying honest.
+*/
 const SUNDAY: Block[] = [
   WAKE,
-  { start: "06:20", end: "07:30", label: "Quiet Time", kind: "personal" },
+  { start: "06:20", end: "07:15", label: "Quiet Time", kind: "personal" },
+  {
+    start: "07:30",
+    end: "08:15",
+    label: "Easy Run",
+    kind: "training",
+    brief: "Recovery — 30–45 min zone 1 outdoors, or a ruck/walk · honesty day",
+  },
   { start: "09:30", end: "11:30", label: "Church", kind: "personal" },
   { start: "14:00", end: "15:30", label: "Weekly Reset", kind: "personal" },
   { start: "19:00", end: "21:00", label: "Study", kind: "work" },
@@ -266,11 +256,12 @@ const SUNDAY: Block[] = [
 /** The weekly template, keyed by `Date.prototype.getDay()`. */
 export const WEEKLY_SCHEDULE: Record<Weekday, Block[]> = {
   0: SUNDAY,
-  1: [...HYROX_DAY_MORNING, ...MON_EVENING],
-  2: trDay(EASY_RUN),
-  3: [...HYROX_DAY_MORNING, ...WED_EVENING],
-  4: trDay(INTERVALS),
-  5: [...FRI_MORNING, ...FRI_EVENING],
+  1: [...mwfMorning(easyRun("06:50", "40–50 min conversational")), ...MON_EVENING],
+  2: trDay(INTERVALS, lift("Upper — bench · row · OHP · pulldown · arms, 3–4×6–10")),
+  3: [...mwfMorning(easyRun("06:50", "40–50 min conversational")), ...WED_EVENING],
+  4: trDay(easyRun("07:00", "30–40 min truly easy — the week’s hardest days surround it"),
+           lift("Lower — squat · RDL · split squat · calves + grip work")),
+  5: [...mwfMorning(easyRun("06:40", "30 min shakeout + 4 strides")), ...FRI_EVENING],
   6: SATURDAY,
 };
 
