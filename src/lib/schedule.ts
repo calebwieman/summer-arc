@@ -66,25 +66,33 @@ const WIND_DOWN: Block = {
   what the anchor-by-kind rule in `habits.ts` buys.
 */
 
+/*
+  Morning sessions start at 6:00 because that is when the Sarkeys Fitness
+  Center opens on weekdays — the old 5:00 slots assumed a gym that was not
+  actually unlocked. The indoor track (6 laps = 1km) and the weight room are
+  both behind that door, so the day now wakes 5:30 on training mornings and
+  6:00 on the class-evening days, where a 4:45 alarm bought nothing but a
+  sixteen-and-a-half-hour day in front of a hard evening session.
+*/
 const INTERVALS: Block = {
-  start: "05:00",
-  end: "06:00",
+  start: "06:00",
+  end: "07:00",
   label: "Intervals",
   kind: "training",
-  brief: "5 × 1km @ 10k effort · 2min jog",
+  brief: "5 × 1km @ 10k effort · 2min jog — track opens 6:00",
 };
 
 const EASY_RUN: Block = {
-  start: "05:00",
-  end: "06:00",
+  start: "06:00",
+  end: "07:00",
   label: "Easy Run",
   kind: "training",
   brief: "45–55 min conversational · nothing hard",
 };
 
 const STRENGTH: Block = {
-  start: "05:00",
-  end: "06:00",
+  start: "06:00",
+  end: "07:00",
   label: "Strength",
   kind: "training",
   brief: "Squat · RDL · split squat · farmer carry — 4×6 heavy, clean",
@@ -155,25 +163,39 @@ const POLY: Block = {
 };
 
 /**
- * Mon / Wed / Fri up to the class run. Mornings differ: Friday keeps a 5 AM
- * strength hour, Monday and Wednesday train in the evening class instead, so
- * their freed hour becomes the day's first Deep Work — hardest work first,
- * same wake either way.
+ * Mon / Wed / Fri up to the class run. Mornings differ by where training
+ * lives: Friday lifts at 6:00 when the gym opens, so it wakes 5:30; Monday
+ * and Wednesday train in the 5:30 PM class instead, so they wake 6:00 —
+ * a 4:45 alarm on a class-evening day just made the day sixteen hours long
+ * for nothing. The class run from 11:00 onward is identical everywhere.
  */
-function mwfMorning(training?: Block): Block[] {
-  return [
-    WAKE,
-    training ?? { start: "05:00", end: "06:20", label: "Deep Work", kind: "work" },
-    { start: "06:20", end: "07:00", label: "Quiet Time", kind: "personal" },
-    { start: "07:00", end: "07:30", label: "Breakfast", kind: "personal" },
-    { start: "07:30", end: "09:00", label: "Admin", kind: "work" },
-    // Ends short of the hour on purpose: the ENGL walk starts at 10:38.
-    { start: "09:00", end: "10:35", label: "Deep Work", kind: "work" },
-    ENGL,
-    { start: "12:00", end: "12:50", label: "Lunch", kind: "personal" },
-    FMS,
-  ];
-}
+const MWF_CLASSES: Block[] = [
+  ENGL,
+  { start: "12:00", end: "12:50", label: "Lunch", kind: "personal" },
+  FMS,
+];
+
+/** Mon / Wed morning — no session, the evening class is the training. */
+const HYROX_DAY_MORNING: Block[] = [
+  { start: "06:00", end: "06:15", label: "Wake", kind: "personal" },
+  { start: "06:15", end: "06:50", label: "Quiet Time", kind: "personal" },
+  { start: "06:50", end: "07:20", label: "Breakfast", kind: "personal" },
+  { start: "07:20", end: "08:30", label: "Admin", kind: "work" },
+  // Ends short of the hour on purpose: the ENGL walk starts at 10:38.
+  { start: "08:30", end: "10:35", label: "Deep Work", kind: "work" },
+  ...MWF_CLASSES,
+];
+
+/** Friday morning — in the weight room at open. */
+const FRI_MORNING: Block[] = [
+  { start: "05:30", end: "05:45", label: "Wake", kind: "personal" },
+  STRENGTH,
+  { start: "07:00", end: "07:30", label: "Quiet Time", kind: "personal" },
+  { start: "07:30", end: "08:00", label: "Breakfast", kind: "personal" },
+  { start: "08:00", end: "09:00", label: "Admin", kind: "work" },
+  { start: "09:00", end: "10:35", label: "Deep Work", kind: "work" },
+  ...MWF_CLASSES,
+];
 
 /** Mon / Wed — afternoon into the Sarkeys class, dinner after. */
 function hyroxEvening(rest: Block[]): Block[] {
@@ -209,11 +231,11 @@ const FRI_EVENING: Block[] = [
 /** Tue / Thu — morning run (easy after Monday's class, quality Thursday). */
 function trDay(training: Block): Block[] {
   return [
-    WAKE,
+    { start: "05:30", end: "05:45", label: "Wake", kind: "personal" },
     training,
-    { start: "06:20", end: "07:00", label: "Quiet Time", kind: "personal" },
-    { start: "07:00", end: "07:45", label: "Breakfast", kind: "personal" },
-    { start: "07:45", end: "10:05", label: "Deep Work", kind: "work" },
+    { start: "07:00", end: "07:30", label: "Quiet Time", kind: "personal" },
+    { start: "07:30", end: "08:00", label: "Breakfast", kind: "personal" },
+    { start: "08:00", end: "10:05", label: "Deep Work", kind: "work" },
     POLY,
     { start: "11:50", end: "12:15", label: "Lunch", kind: "personal" },
     // Second Deep Work block of the day — the habit is anchored to the first only.
@@ -244,11 +266,11 @@ const SUNDAY: Block[] = [
 /** The weekly template, keyed by `Date.prototype.getDay()`. */
 export const WEEKLY_SCHEDULE: Record<Weekday, Block[]> = {
   0: SUNDAY,
-  1: [...mwfMorning(), ...MON_EVENING],
+  1: [...HYROX_DAY_MORNING, ...MON_EVENING],
   2: trDay(EASY_RUN),
-  3: [...mwfMorning(), ...WED_EVENING],
+  3: [...HYROX_DAY_MORNING, ...WED_EVENING],
   4: trDay(INTERVALS),
-  5: [...mwfMorning(STRENGTH), ...FRI_EVENING],
+  5: [...FRI_MORNING, ...FRI_EVENING],
   6: SATURDAY,
 };
 
