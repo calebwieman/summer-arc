@@ -123,7 +123,7 @@ const FMS: Block = {
   end: "13:50",
   label: "FMS 1013",
   kind: "class",
-  brief: "Dale Hall 0128 · Looking at Movies 8e is Inclusive Access — already billed",
+  brief: "Dale Hall 0128 · Sperb · Looking at Movies 8e is Inclusive Access — already billed",
 };
 
 const SPAN_MTWR: Block = {
