@@ -63,8 +63,13 @@ const PULL_COMMIT = 72;
  * top and bottom feel like ends.
  */
 const GRID = [
-  ["calendar", "day", "habits", "system"],
-  ["sessions", "record", "gym"],
+  // The gym sits directly beside the day, not two moves away on the record
+  // row: it is used every morning, and a surface used daily earns a slot on
+  // the row the thumb already lives on. Lesson paid for in the field — its
+  // first address was record→right, and the button that jumped there got
+  // more use than the swipe ever did.
+  ["calendar", "day", "gym", "habits", "system"],
+  ["sessions", "record"],
   ["history"],
 ] as const;
 
@@ -1692,6 +1697,18 @@ export function DayScreen() {
     [habits, setHabit, clock.date],
   );
 
+  /*
+    The sessions page's tap path to the gym — a cross-row jump, so it writes
+    the same one-step memory a gesture would: pull down from the gym and you
+    land back on the row you left.
+  */
+  const jumpToGym = useCallback(() => {
+    leftFrom.current = { row, col };
+    setMove({ axis: "y", dir: -1 });
+    setRow(0);
+    setCol(2);
+  }, [row, col]);
+
   // The whole instrument takes the shock — the mass reads as the device.
   const fireRecoil = useCallback(() => {
     if (reduced) return;
@@ -2206,7 +2223,7 @@ export function DayScreen() {
                     today={clock.date}
                     version={dataVersion}
                     onOpen={setThread}
-                    onGym={() => goCol(GRID[1].length - 1)}
+                    onGym={jumpToGym}
                   />
                 ) : page === "gym" ? (
                   <GymScreen
