@@ -8,7 +8,9 @@
 // v5 dropped the old Summer entries; v6 ships the new mark.
 // v8 ships the mobile layout repair — an installed PWA holding the cached "/"
 // shell would otherwise keep serving the overlapping layout.
-const CACHE_NAME = "standard-cache-v30";
+// v31: the Gym shipped (v1+v2) without a bump — an offline fallback could
+// still serve the pre-gym shell. This purge retires it everywhere.
+const CACHE_NAME = "standard-cache-v31";
 const APP_SHELL = [
   "/",
   "/manifest.json",

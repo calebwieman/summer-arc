@@ -2206,6 +2206,7 @@ export function DayScreen() {
                     today={clock.date}
                     version={dataVersion}
                     onOpen={setThread}
+                    onGym={() => goCol(GRID[1].length - 1)}
                   />
                 ) : page === "gym" ? (
                   <GymScreen
