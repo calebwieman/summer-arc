@@ -48,8 +48,10 @@ const WIND_DOWN: Block = {
   slot — five mornings, 90 minutes to Lower/Push/Engine/Pull/Full body, built
   to leave nothing — and every afternoon carries a run at 4:10, right after
   Spanish lets out next door. Wednesday's lift is the engine day (sleds,
-  SkiErg, wall balls — the HYROX sim), so its run is a recovery jog and
-  Thursday's intervals land on legs that have had a night.
+  SkiErg, wall balls — the HYROX sim); its run is now a hard track effort too,
+  by choice — engine AM and intervals PM stacked on the same day. That means
+  Thursday's intervals land on legs that already worked twice on Wednesday,
+  not on a night's rest — watch the Gym surface's recovery line here first.
 
   A week this loaded only works if recovery is watched rather than assumed:
   the Gym surface tracks tonnage and session RPE and says so when the jump is
@@ -197,10 +199,19 @@ const MON_EVENING = mwfEvening(
   [{ start: "18:00", end: "21:15", label: "Build Block", kind: "work" }],
 );
 
-/** Wednesday — recovery jog after the engine morning; Build cut for BCM. */
+/** Wednesday's hard effort — track work on top of the engine morning. */
+const WED_HARD: Block = {
+  start: "16:10",
+  end: "16:55",
+  label: "Track Hard Effort",
+  kind: "training",
+  brief: "6 × 600m @ 5k effort · 90s jog — Sarkeys indoor track (6 laps/km); warm up + cool down inside the 45",
+};
+
+/** Wednesday — hard track effort after the engine morning; Build cut for BCM. */
 const WED_EVENING = mwfEvening(
   SPAN_MTWR,
-  pmRun("16:40", "30 min recovery jog — zone 1, the engine-day tax, no ego"),
+  WED_HARD,
   [
     { start: "18:00", end: "20:00", label: "Build Block", kind: "work" },
     { start: "20:30", end: "21:15", label: "BCM Renown", kind: "personal" },
