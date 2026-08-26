@@ -48,14 +48,11 @@ const WIND_DOWN: Block = {
   slot — five mornings of squat / bench / deadlift / pull / press, each built
   around a heavy top set and back-offs so the weight actually climbs week to
   week — and every afternoon carries a run at 4:10, right after Spanish lets
-  out next door.
-
-  ⚠ Wednesday is loaded on purpose and it is the week's live risk: a heavy
-  deadlift morning and a 6×600m track effort the same afternoon, with
-  Thursday's intervals landing on legs that worked twice the day before
-  rather than on a night's rest. Two hard runs on consecutive days breaks
-  the usual 48-hour rule. If anything is going to need backing off, it is
-  this pair — soften Thursday first.
+  out next door. Wednesday is the deadlift morning, so its run is a recovery
+  jog: keeping that one genuinely easy is what lets Thursday's intervals be
+  genuinely hard, and one quality run plus Saturday's long run is where the
+  speed actually comes from. Hard days hard, easy days easy — the whole week
+  depends on the easy ones staying easy.
 
   The sets themselves live in Bevel, not here: this app owns the day, the
   letters and the record, and one place for sets beats two. Saturday is the
@@ -81,7 +78,7 @@ const INTERVALS: Block = {
   end: "17:10",
   label: "Intervals",
   kind: "training",
-  brief: "5 × 1km @ 10k effort · 2min jog — ⚠ second hard run in two days, cut it short if the legs are flat",
+  brief: "5 × 1km @ 10k effort · 2min jog — the week's one quality run; yesterday was easy on purpose",
 };
 
 const LONG_RUN: Block = {
@@ -204,19 +201,10 @@ const MON_EVENING = mwfEvening(
   [],
 );
 
-/** Wednesday's hard effort — track work on top of the deadlift morning. */
-const WED_HARD: Block = {
-  start: "16:10",
-  end: "16:55",
-  label: "Track Hard Effort",
-  kind: "training",
-  brief: "6 × 600m @ 5k effort · 90s jog — Sarkeys indoor track (6 laps/km); warm up + cool down inside the 45",
-};
-
-/** Wednesday — hard track effort after the deadlift morning, then BCM. */
+/** Wednesday — recovery jog after the deadlift morning, then BCM. */
 const WED_EVENING = mwfEvening(
   SPAN_MTWR,
-  WED_HARD,
+  pmRun("16:40", "30 min recovery jog — zone 1, the deadlift-morning tax, no ego"),
   [{ start: "20:30", end: "21:15", label: "BCM Renown", kind: "personal" }],
 );
 
