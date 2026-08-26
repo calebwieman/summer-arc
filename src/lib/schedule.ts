@@ -32,13 +32,6 @@ export interface Block {
 /** 0 = Sunday … 6 = Saturday, matching `Date.prototype.getDay()`. */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
-const WAKE: Block = {
-  start: "04:45",
-  end: "05:00",
-  label: "Wake",
-  kind: "personal",
-};
-
 const WIND_DOWN: Block = {
   start: "21:15",
   end: "22:00",
@@ -47,61 +40,50 @@ const WIND_DOWN: Block = {
 };
 
 /*
-  The training week, rebuilt hybrid — run in the morning, lift or stations in
-  the afternoon, five two-a-days. Dallas (Nov 18–22) is still the target.
+  The training week, v3 — iron in the morning, road in the afternoon.
 
-  The shape is the hybrid-athlete standard: an aerobic base of six runs
-  (four easy, one quality, one long) under three lifts and the two CEREMONY
-  HYROX classes at the Sarkeys Fitness Center (Mon/Wed 5:30 PM, free, four
-  minutes away). Runs own 6:00 AM because that is when the building opens and
-  the day's first class isn't until 10:30; lifts own the 4:10 slot because
-  Spanish ends at 3:50 next door and the evening build block starts at 6:30
-  regardless. Hard things stay separated by design: the only quality run
-  (Tuesday) is followed by the week's easiest run, the lifts sit eight-plus
-  hours after that morning's run, and Sunday's session is recovery by contract
-  — zone 1 or a walk, the day that lets seven days a week be survivable at
-  all. The ramp is the real risk of a doubles week: the easy runs start at
-  thirty-to-forty minutes and earn their length; the mileage is allowed to
-  grow, not assumed.
+  The CEREMONY HYROX classes are gone (one visit was enough), and with them
+  the last reason to train in the evening: pre-workout at 4 PM was wrecking
+  sleep, and Sarkeys is packed after 3. So the lifts own the 6:00 door-open
+  slot — five mornings, 90 minutes to Lower/Push/Engine/Pull/Full body, built
+  to leave nothing — and every afternoon carries a run at 4:10, right after
+  Spanish lets out next door. Wednesday's lift is the engine day (sleds,
+  SkiErg, wall balls — the HYROX sim), so its run is a recovery jog and
+  Thursday's intervals land on legs that have had a night.
+
+  A week this loaded only works if recovery is watched rather than assumed:
+  the Gym surface tracks tonnage and session RPE and says so when the jump is
+  too big. Saturday is the long run; Sunday is mobility and a zone-1 shakeout,
+  recovery by contract — the day that makes seven days a week survivable.
 */
 
-const INTERVALS: Block = {
-  start: "06:00",
-  end: "07:00",
-  label: "Intervals",
-  kind: "training",
-  brief: "5 × 1km @ 10k effort · 2min jog — track opens 6:00",
-};
+/** Five mornings, one label — the brief carries which session today is. */
+function lift(brief: string): Block {
+  return { start: "06:00", end: "07:45", label: "Lift", kind: "training", brief };
+}
 
 /**
- * Every aerobic run shares one label so the sessions page and the training
+ * Every aerobic afternoon shares one label so the sessions page and the R
  * letter treat them as one thing; the brief carries what today's version is.
  */
-function easyRun(end: string, brief: string): Block {
-  return { start: "06:00", end, label: "Easy Run", kind: "training", brief };
+function pmRun(end: string, brief: string): Block {
+  return { start: "16:10", end, label: "Easy Run", kind: "training", brief };
 }
 
-/** Same idea for the iron: one label, three briefs. */
-function lift(brief: string): Block {
-  return { start: "16:10", end: "17:25", label: "Lift", kind: "training", brief };
-}
-
-const HYROX: Block = {
-  // CEREMONY HYROX, Sarkeys Fitness Center Flex Studio. The 5:30 class; the
-  // 6:30 runs as a fallback when registration misses — same block either way.
-  start: "17:30",
-  end: "18:15",
-  label: "Hyrox Session",
+const INTERVALS: Block = {
+  start: "16:10",
+  end: "17:10",
+  label: "Intervals",
   kind: "training",
-  brief: "CEREMONY HYROX @ Sarkeys FC — register on fitrec.ou.edu (closes 1h before) · log the splits",
+  brief: "5 × 1km @ 10k effort · 2min jog — engine was yesterday, legs have had a night",
 };
 
 const LONG_RUN: Block = {
   start: "09:00",
-  end: "11:00",
+  end: "10:45",
   label: "Long Run",
   kind: "training",
-  brief: "75–90 min steady · last 15 at race effort",
+  brief: "80–100 min steady · last 15 at race effort · core + grip after",
 };
 
 /**
@@ -157,98 +139,115 @@ const MWF_CLASSES: Block[] = [
   FMS,
 ];
 
-/** Mon / Wed / Fri morning — the day's first session, then the class run. */
-function mwfMorning(run: Block): Block[] {
+/**
+ * Every weekday opens the same way: up at 5:30, under a bar when the doors
+ * open at 6:00, and the day's quiet half hour lands *after* the session —
+ * pre-workout goes in the water bottle on the walk over, and breakfast is
+ * earned. What changes per day is only the brief on the lift.
+ */
+function weekdayMorning(liftBrief: string): Block[] {
   return [
     { start: "05:30", end: "05:45", label: "Wake", kind: "personal" },
-    run,
-    { start: "07:00", end: "07:30", label: "Quiet Time", kind: "personal" },
-    { start: "07:30", end: "08:00", label: "Breakfast", kind: "personal" },
-    { start: "08:00", end: "09:00", label: "Admin", kind: "work" },
-    // Ends short of the hour on purpose: the ENGL walk starts at 10:38.
-    { start: "09:00", end: "10:35", label: "Deep Work", kind: "work" },
+    lift(liftBrief),
+    { start: "07:50", end: "08:20", label: "Breakfast", kind: "personal" },
+    { start: "08:20", end: "08:40", label: "Quiet Time", kind: "personal" },
+  ];
+}
+
+/** Mon / Wed / Fri — deep work until the ENGL walk starts at 10:38. */
+function mwfDay(liftBrief: string): Block[] {
+  return [
+    ...weekdayMorning(liftBrief),
+    { start: "08:45", end: "10:35", label: "Deep Work", kind: "work" },
     ...MWF_CLASSES,
   ];
 }
 
-/** Mon / Wed — afternoon into the Sarkeys class, dinner after. */
-function hyroxEvening(rest: Block[]): Block[] {
+/** Tue / Thu — POLY at 10:30, the long study spine after lunch. */
+function trDay(liftBrief: string, run: Block): Block[] {
   return [
-    SPAN_MTWR,
-    { start: "16:10", end: "17:10", label: "Content", kind: "work" },
-    HYROX,
-    { start: "18:30", end: "19:15", label: "Dinner", kind: "personal" },
-    ...rest,
-    WIND_DOWN,
-  ];
-}
-
-const MON_EVENING = hyroxEvening([
-  { start: "19:15", end: "21:15", label: "Build Block", kind: "work" },
-]);
-
-/** Wednesday — Build Block is cut short for BCM. */
-const WED_EVENING = hyroxEvening([
-  { start: "19:15", end: "20:00", label: "Build Block", kind: "work" },
-  { start: "20:30", end: "21:15", label: "BCM Renown", kind: "personal" },
-]);
-
-/** Friday — the third lift of the week, straight after the online Spanish. */
-const FRI_EVENING: Block[] = [
-  SPAN_FRI,
-  lift("Full-body pump — incline press · pull · laterals · arms · carries"),
-  { start: "17:30", end: "18:15", label: "Dinner", kind: "personal" },
-  { start: "18:30", end: "21:15", label: "Build Block", kind: "work" },
-  WIND_DOWN,
-];
-
-/** Tue / Thu — morning run, afternoon lift: the pure hybrid days. */
-function trDay(run: Block, pm: Block): Block[] {
-  return [
-    { start: "05:30", end: "05:45", label: "Wake", kind: "personal" },
-    run,
-    { start: "07:00", end: "07:30", label: "Quiet Time", kind: "personal" },
-    { start: "07:30", end: "08:00", label: "Breakfast", kind: "personal" },
-    { start: "08:00", end: "10:05", label: "Deep Work", kind: "work" },
+    ...weekdayMorning(liftBrief),
+    { start: "08:45", end: "10:05", label: "Deep Work", kind: "work" },
     POLY,
     { start: "11:50", end: "12:15", label: "Lunch", kind: "personal" },
     // Second Deep Work block of the day — the habit is anchored to the first only.
     { start: "12:15", end: "15:00", label: "Deep Work", kind: "work" },
     SPAN_MTWR,
-    pm,
+    run,
     { start: "17:30", end: "18:15", label: "Dinner", kind: "personal" },
     { start: "18:30", end: "21:15", label: "Build Block", kind: "work" },
     WIND_DOWN,
   ];
 }
 
+/** Mon / Wed / Fri afternoon — Spanish, the run, then the evening's shape. */
+function mwfEvening(span: Block, run: Block, rest: Block[]): Block[] {
+  return [
+    span,
+    run,
+    { start: "17:00", end: "17:45", label: "Dinner", kind: "personal" },
+    ...rest,
+    WIND_DOWN,
+  ];
+}
+
+const MON_EVENING = mwfEvening(
+  SPAN_MTWR,
+  pmRun("16:50", "40 min conversational — legs will be heavy from the squats, that's fine"),
+  [{ start: "18:00", end: "21:15", label: "Build Block", kind: "work" }],
+);
+
+/** Wednesday — recovery jog after the engine morning; Build cut for BCM. */
+const WED_EVENING = mwfEvening(
+  SPAN_MTWR,
+  pmRun("16:40", "30 min recovery jog — zone 1, the engine-day tax, no ego"),
+  [
+    { start: "18:00", end: "20:00", label: "Build Block", kind: "work" },
+    { start: "20:30", end: "21:15", label: "BCM Renown", kind: "personal" },
+  ],
+);
+
+const FRI_EVENING = mwfEvening(
+  SPAN_FRI,
+  pmRun("16:50", "40 min easy + 4 strides — shake the week out"),
+  [{ start: "18:00", end: "21:15", label: "Build Block", kind: "work" }],
+);
+
 const SATURDAY: Block[] = [
-  WAKE,
-  { start: "06:20", end: "07:30", label: "Quiet Time", kind: "personal" },
+  { start: "07:00", end: "07:15", label: "Wake", kind: "personal" },
+  { start: "07:15", end: "08:00", label: "Quiet Time", kind: "personal" },
+  { start: "08:00", end: "08:30", label: "Breakfast", kind: "personal" },
   LONG_RUN,
   { start: "12:00", end: "14:00", label: "Content", kind: "work" },
   WIND_DOWN,
 ];
 
 /*
-  The seventh day. He asked for six-if-not-seven, so Sunday carries a session
-  — but it is recovery by contract, not a workout that snuck in: zone 1,
-  conversational the whole way, outdoors because the gym does not open until
-  two. If anything aches, walking the whole block still counts. The week's
-  ability to absorb twelve sessions depends on this one staying honest.
+  The seventh day. Still a training day on paper, but recovery by contract:
+  mobility in the morning because that is when stiffness tells the truth, and
+  a zone-1 shakeout at four — conversational the whole way, outdoors, and if
+  anything aches, walking the whole block still counts. Twelve hard sessions
+  a week are only absorbable because this one stays honest.
 */
 const SUNDAY: Block[] = [
-  WAKE,
-  { start: "06:20", end: "07:15", label: "Quiet Time", kind: "personal" },
+  { start: "07:30", end: "07:45", label: "Wake", kind: "personal" },
+  { start: "07:45", end: "08:30", label: "Quiet Time", kind: "personal" },
   {
-    start: "07:30",
-    end: "08:15",
-    label: "Easy Run",
-    kind: "training",
-    brief: "Recovery — 30–45 min zone 1 outdoors, or a ruck/walk · honesty day",
+    start: "08:45",
+    end: "09:15",
+    label: "Mobility",
+    kind: "personal",
+    brief: "hips · ankles · t-spine · foam roll — the weekly recovery audit",
   },
   { start: "09:30", end: "11:30", label: "Church", kind: "personal" },
   { start: "14:00", end: "15:30", label: "Weekly Reset", kind: "personal" },
+  {
+    start: "16:00",
+    end: "16:40",
+    label: "Recovery Run",
+    kind: "training",
+    brief: "30–40 min zone 1 outdoors, or a ruck/walk · honesty day",
+  },
   { start: "19:00", end: "21:00", label: "Study", kind: "work" },
   WIND_DOWN,
 ];
@@ -256,12 +255,26 @@ const SUNDAY: Block[] = [
 /** The weekly template, keyed by `Date.prototype.getDay()`. */
 export const WEEKLY_SCHEDULE: Record<Weekday, Block[]> = {
   0: SUNDAY,
-  1: [...mwfMorning(easyRun("06:50", "40–50 min conversational")), ...MON_EVENING],
-  2: trDay(INTERVALS, lift("Upper — bench · row · OHP · pulldown · arms, 3–4×6–10")),
-  3: [...mwfMorning(easyRun("06:50", "40–50 min conversational")), ...WED_EVENING],
-  4: trDay(easyRun("07:00", "30–40 min truly easy — the week’s hardest days surround it"),
-           lift("Lower — squat · RDL · split squat · calves + grip work")),
-  5: [...mwfMorning(easyRun("06:40", "30 min shakeout + 4 strides")), ...FRI_EVENING],
+  1: [
+    ...mwfDay("Lower (heavy) — squat 5×5 · RDL · split squat · leg press · calves"),
+    ...MON_EVENING,
+  ],
+  2: trDay(
+    "Upper push — bench 5×5 · incline DB · seated press · dips · laterals",
+    pmRun("16:50", "40 min conversational — easy means easy"),
+  ),
+  3: [
+    ...mwfDay("Engine — HYROX sim: sleds · SkiErg · wall balls · carries, at effort"),
+    ...WED_EVENING,
+  ],
+  4: trDay(
+    "Upper pull — weighted pull-ups 5×5 · rows · pulldown · face pulls · arms",
+    INTERVALS,
+  ),
+  5: [
+    ...mwfDay("Full body — deadlift 5×3 · front squat · push press · chins"),
+    ...FRI_EVENING,
+  ],
   6: SATURDAY,
 };
 

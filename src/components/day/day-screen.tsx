@@ -33,6 +33,7 @@ import { HistoryScreen } from "@/components/history/history-screen";
 import { CalendarScreen } from "@/components/calendar/calendar-screen";
 import { SessionsScreen } from "@/components/sessions/sessions-screen";
 import { SessionThread } from "@/components/sessions/session-thread";
+import { GymScreen } from "@/components/gym/gym-screen";
 import { HabitsScreen } from "@/components/settings/habits-screen";
 import { SystemScreen } from "@/components/settings/system-screen";
 import { DaySheet } from "@/components/history/day-sheet";
@@ -63,7 +64,7 @@ const PULL_COMMIT = 72;
  */
 const GRID = [
   ["calendar", "day", "habits", "system"],
-  ["sessions", "record"],
+  ["sessions", "record", "gym"],
   ["history"],
 ] as const;
 
@@ -142,6 +143,7 @@ const SUBTITLES: Record<Page, string> = {
   habits: "what the letters stand for",
   system: "how it looks, and how it survives",
   sessions: "training, session by session",
+  gym: "every set, written down at the rack",
 };
 
 /** What each surface calls itself, used wherever a gesture names its target. */
@@ -153,6 +155,7 @@ const TITLES: Record<Page, string> = {
   habits: "The register",
   system: "System",
   sessions: "Sessions",
+  gym: "The gym",
 };
 
 
@@ -1648,6 +1651,29 @@ export function DayScreen() {
     [clock.date, clock.nowMin, reduced],
   );
 
+  /*
+    A saved gym session is a training session: the T letter commits itself,
+    and the session's one-line receipt becomes the training note — unless a
+    sentence has already been written by hand, because prose beats receipts.
+    Routed through `setHabit` so the stamp, the recount and the wheel's
+    return-home all behave exactly as if the latch had been thrown.
+  */
+  const onGymFinished = useCallback(
+    (summary: string) => {
+      const t = habits.find((h) => h.anchor?.kind === "training" && !h.archived);
+      if (t) setHabit(t.id, true);
+      setLog((prev) => {
+        const base = prev ?? makeEmptyLog(clock.date);
+        if (base.trainingNote?.trim()) return base;
+        const next = { ...base, trainingNote: summary };
+        saveDailyLog(next);
+        return next;
+      });
+      setDataVersion((v) => v + 1);
+    },
+    [habits, setHabit, clock.date],
+  );
+
   // The whole instrument takes the shock — the mass reads as the device.
   const fireRecoil = useCallback(() => {
     if (reduced) return;
@@ -2162,6 +2188,12 @@ export function DayScreen() {
                     today={clock.date}
                     version={dataVersion}
                     onOpen={setThread}
+                  />
+                ) : page === "gym" ? (
+                  <GymScreen
+                    today={clock.date}
+                    version={dataVersion}
+                    onTrained={onGymFinished}
                   />
                 ) : page === "habits" ? (
                   <HabitsScreen version={dataVersion} />

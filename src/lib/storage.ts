@@ -13,6 +13,15 @@ import {
   migrateLegacyLog,
   planMigration,
 } from "./migrate";
+import {
+  addCustomExercise,
+  getAllSessions,
+  getCustomExercises,
+  getSession as getGymSession,
+  isGymSession,
+  saveSession as saveGymSession,
+  type GymSession,
+} from "./gym";
 import { routineEdited, routineOverrides, setRoutineAll } from "./schedule";
 import { blocksForDate } from "./schedule";
 import { getPrefs, setPrefs, type Prefs } from "./prefs";
@@ -219,8 +228,12 @@ export interface BackupBundle {
    *
    * 6 adds `routine`: the per-weekday schedule overrides. An edited semester
    * timetable is exactly the thing a device migration must not lose.
+   *
+   * 7 adds `gym`: every logged lifting session, plus the exercise names the
+   * user has added beyond the program. A semester of PRs is the single least
+   * replaceable thing this app holds.
    */
-  schema: 3 | 4 | 5 | 6;
+  schema: 3 | 4 | 5 | 6 | 7;
   exportedAt: string;
   /** The registry, retired habits included, so history stays readable. */
   habits?: HabitDef[];
@@ -228,6 +241,10 @@ export interface BackupBundle {
   prefs?: Prefs;
   /** Per-weekday schedule overrides, keyed "0".."6". */
   routine?: Record<string, unknown>;
+  /** Every gym session ever logged. */
+  gym?: GymSession[];
+  /** Exercise names added beyond the built-in program. */
+  gymExercises?: string[];
   daily: Record<string, DailyLog>;
 }
 
@@ -239,11 +256,13 @@ export function exportBackup(): BackupBundle {
   // rather than by the button — every path out of the app goes through this.
   const prefs = setPrefs({ lastBackupAt: exportedAt });
   return {
-    schema: 6,
+    schema: 7,
     exportedAt,
     habits: getAllHabits(),
     prefs,
     routine: routineOverrides(),
+    gym: getAllSessions(),
+    gymExercises: getCustomExercises(),
     daily,
   };
 }
@@ -317,6 +336,38 @@ export function importBackup(
   // Settings a restore used to drop on the floor: the theme, whether the
   // notification prompt has been answered, and when the file itself was taken.
   if (b.prefs && typeof b.prefs === "object") setPrefs(b.prefs);
+
+  // Gym sessions restore by id — ids embed the start timestamp, so two
+  // devices logging different mornings never collide. Existing wins, with
+  // one exception: a finished copy replaces a stale unfinished one, or the
+  // morning a backup was taken mid-workout would block its own sets forever.
+  if (Array.isArray(b.gym)) {
+    for (const s of b.gym) {
+      if (!isGymSession(s)) continue;
+      const existing = getGymSession(s.id);
+      if (existing && !(existing.endedAt == null && s.endedAt != null)) continue;
+      // The active pointer is device-local and never exported, so a session
+      // that was live at export time must restore as finished — otherwise no
+      // surface could ever reach, finish, or delete it. Its last committed
+      // set is the honest end stamp.
+      saveGymSession(
+        s.endedAt != null
+          ? s
+          : {
+              ...s,
+              endedAt: s.exercises.reduce(
+                (m, e) => e.sets.reduce((m2, x) => Math.max(m2, x.at ?? 0), m),
+                s.startedAt,
+              ),
+            },
+      );
+    }
+  }
+  if (Array.isArray(b.gymExercises)) {
+    for (const n of b.gymExercises) {
+      if (typeof n === "string") addCustomExercise(n);
+    }
+  }
 
   return { daily: count, migrated, habitsAdded };
 }
