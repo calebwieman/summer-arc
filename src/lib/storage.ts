@@ -13,15 +13,6 @@ import {
   migrateLegacyLog,
   planMigration,
 } from "./migrate";
-import {
-  addCustomExercise,
-  getAllSessions,
-  getCustomExercises,
-  getSession as getGymSession,
-  isGymSession,
-  saveSession as saveGymSession,
-  type GymSession,
-} from "./gym";
 import { routineEdited, routineOverrides, setRoutineAll } from "./schedule";
 import { blocksForDate } from "./schedule";
 import { getPrefs, setPrefs, type Prefs } from "./prefs";
@@ -29,9 +20,24 @@ import { getTodayString } from "./today";
 import type { DailyLog, HabitKey } from "./types";
 
 const DAILY_PREFIX = "standard:daily:";
+const DAILY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function dailyKey(date: string) {
   return `${DAILY_PREFIX}${date}`;
+}
+
+/**
+ * The daily-log shape gate. Routine blocks are validated per-element on
+ * every read; the core logs — the thing the whole app is —
+ * had no gate at all, so one date-less entry from a hand-edited backup
+ * white-screened every surface on every launch. Guarding the readers too is
+ * what un-bricks a device that is already poisoned, instead of demanding a
+ * site-data wipe that costs the semester.
+ */
+function isDailyLog(v: unknown): v is DailyLog {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return typeof o.date === "string" && DAILY_DATE_RE.test(o.date);
 }
 
 function read<T>(key: string): T | null {
@@ -51,7 +57,8 @@ function write(key: string, value: unknown): void {
 }
 
 export function getDailyLog(date: string): DailyLog | null {
-  return read<DailyLog>(dailyKey(date));
+  const log = read<DailyLog>(dailyKey(date));
+  return log && isDailyLog(log) ? log : null;
 }
 
 export function getAllDailyLogs(): DailyLog[] {
@@ -61,7 +68,7 @@ export function getAllDailyLogs(): DailyLog[] {
     const key = window.localStorage.key(i);
     if (!key || !key.startsWith(DAILY_PREFIX)) continue;
     const log = read<DailyLog>(key);
-    if (log) logs.push(log);
+    if (log && isDailyLog(log)) logs.push(log);
   }
   return logs.sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -229,9 +236,9 @@ export interface BackupBundle {
    * 6 adds `routine`: the per-weekday schedule overrides. An edited semester
    * timetable is exactly the thing a device migration must not lose.
    *
-   * 7 adds `gym`: every logged lifting session, plus the exercise names the
-   * user has added beyond the program. A semester of PRs is the single least
-   * replaceable thing this app holds.
+   * 7 carried `gym`, the built-in lift log. That feature is gone — lifting
+   * lives in Bevel now — so 7 files still read, their gym payload simply
+   * ignored, and nothing writes one again.
    */
   schema: 3 | 4 | 5 | 6 | 7;
   exportedAt: string;
@@ -241,10 +248,6 @@ export interface BackupBundle {
   prefs?: Prefs;
   /** Per-weekday schedule overrides, keyed "0".."6". */
   routine?: Record<string, unknown>;
-  /** Every gym session ever logged. */
-  gym?: GymSession[];
-  /** Exercise names added beyond the built-in program. */
-  gymExercises?: string[];
   daily: Record<string, DailyLog>;
 }
 
@@ -261,8 +264,6 @@ export function exportBackup(): BackupBundle {
     habits: getAllHabits(),
     prefs,
     routine: routineOverrides(),
-    gym: getAllSessions(),
-    gymExercises: getCustomExercises(),
     daily,
   };
 }
@@ -324,50 +325,20 @@ export function importBackup(
   let count = 0;
   let migrated = 0;
   for (const [date, log] of Object.entries(b.daily)) {
-    if (!log || typeof log !== "object" || typeof date !== "string") continue;
+    if (!log || typeof log !== "object" || !DAILY_DATE_RE.test(date)) continue;
     if (plan && (legacy || isLegacyLog(log))) {
       write(dailyKey(date), migrateLegacyLog(date, log, plan));
       migrated += 1;
     } else {
-      write(dailyKey(date), log);
+      // The key is the truth: stamping it onto the log repairs entries whose
+      // own date is missing or disagrees, instead of persisting the poison.
+      write(dailyKey(date), { ...(log as DailyLog), date });
     }
     count += 1;
   }
   // Settings a restore used to drop on the floor: the theme, whether the
   // notification prompt has been answered, and when the file itself was taken.
   if (b.prefs && typeof b.prefs === "object") setPrefs(b.prefs);
-
-  // Gym sessions restore by id — ids embed the start timestamp, so two
-  // devices logging different mornings never collide. Existing wins, with
-  // one exception: a finished copy replaces a stale unfinished one, or the
-  // morning a backup was taken mid-workout would block its own sets forever.
-  if (Array.isArray(b.gym)) {
-    for (const s of b.gym) {
-      if (!isGymSession(s)) continue;
-      const existing = getGymSession(s.id);
-      if (existing && !(existing.endedAt == null && s.endedAt != null)) continue;
-      // The active pointer is device-local and never exported, so a session
-      // that was live at export time must restore as finished — otherwise no
-      // surface could ever reach, finish, or delete it. Its last committed
-      // set is the honest end stamp.
-      saveGymSession(
-        s.endedAt != null
-          ? s
-          : {
-              ...s,
-              endedAt: s.exercises.reduce(
-                (m, e) => e.sets.reduce((m2, x) => Math.max(m2, x.at ?? 0), m),
-                s.startedAt,
-              ),
-            },
-      );
-    }
-  }
-  if (Array.isArray(b.gymExercises)) {
-    for (const n of b.gymExercises) {
-      if (typeof n === "string") addCustomExercise(n);
-    }
-  }
 
   return { daily: count, migrated, habitsAdded };
 }

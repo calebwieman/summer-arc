@@ -33,7 +33,6 @@ import { HistoryScreen } from "@/components/history/history-screen";
 import { CalendarScreen } from "@/components/calendar/calendar-screen";
 import { SessionsScreen } from "@/components/sessions/sessions-screen";
 import { SessionThread } from "@/components/sessions/session-thread";
-import { GymScreen } from "@/components/gym/gym-screen";
 import { HabitsScreen } from "@/components/settings/habits-screen";
 import { SystemScreen } from "@/components/settings/system-screen";
 import { DaySheet } from "@/components/history/day-sheet";
@@ -63,12 +62,7 @@ const PULL_COMMIT = 72;
  * top and bottom feel like ends.
  */
 const GRID = [
-  // The gym sits directly beside the day, not two moves away on the record
-  // row: it is used every morning, and a surface used daily earns a slot on
-  // the row the thumb already lives on. Lesson paid for in the field — its
-  // first address was record→right, and the button that jumped there got
-  // more use than the swipe ever did.
-  ["calendar", "day", "gym", "habits", "system"],
+  ["calendar", "day", "habits", "system"],
   ["sessions", "record"],
   ["history"],
 ] as const;
@@ -148,7 +142,6 @@ const SUBTITLES: Record<Page, string> = {
   habits: "what the letters stand for",
   system: "how it looks, and how it survives",
   sessions: "training, session by session",
-  gym: "every set, written down at the rack",
 };
 
 /** What each surface calls itself, used wherever a gesture names its target. */
@@ -160,7 +153,6 @@ const TITLES: Record<Page, string> = {
   habits: "The register",
   system: "System",
   sessions: "Sessions",
-  gym: "The gym",
 };
 
 
@@ -1674,41 +1666,6 @@ export function DayScreen() {
     [clock.date, clock.nowMin, reduced],
   );
 
-  /*
-    A saved gym session is a training session: the T letter commits itself,
-    and the session's one-line receipt becomes the training note — unless a
-    sentence has already been written by hand, because prose beats receipts.
-    Routed through `setHabit` so the stamp, the recount and the wheel's
-    return-home all behave exactly as if the latch had been thrown.
-  */
-  const onGymFinished = useCallback(
-    (summary: string) => {
-      const t = habits.find((h) => h.anchor?.kind === "training" && !h.archived);
-      if (t) setHabit(t.id, true);
-      setLog((prev) => {
-        const base = prev ?? makeEmptyLog(clock.date);
-        if (base.trainingNote?.trim()) return base;
-        const next = { ...base, trainingNote: summary };
-        saveDailyLog(next);
-        return next;
-      });
-      setDataVersion((v) => v + 1);
-    },
-    [habits, setHabit, clock.date],
-  );
-
-  /*
-    The sessions page's tap path to the gym — a cross-row jump, so it writes
-    the same one-step memory a gesture would: pull down from the gym and you
-    land back on the row you left.
-  */
-  const jumpToGym = useCallback(() => {
-    leftFrom.current = { row, col };
-    setMove({ axis: "y", dir: -1 });
-    setRow(0);
-    setCol(2);
-  }, [row, col]);
-
   // The whole instrument takes the shock — the mass reads as the device.
   const fireRecoil = useCallback(() => {
     if (reduced) return;
@@ -2223,13 +2180,6 @@ export function DayScreen() {
                     today={clock.date}
                     version={dataVersion}
                     onOpen={setThread}
-                    onGym={jumpToGym}
-                  />
-                ) : page === "gym" ? (
-                  <GymScreen
-                    today={clock.date}
-                    version={dataVersion}
-                    onTrained={onGymFinished}
                   />
                 ) : page === "habits" ? (
                   <HabitsScreen version={dataVersion} />

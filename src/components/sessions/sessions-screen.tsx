@@ -113,14 +113,11 @@ export function SessionsScreen({
   today,
   version,
   onOpen,
-  onGym,
 }: {
   today: string;
   version: number;
   /** Open the full thread of notes for one session type. */
   onOpen: (label: string) => void;
-  /** Jump the grid to the gym — a tap path for anyone who lands here looking for it. */
-  onGym: () => void;
 }) {
   const reduced = useReducedMotion();
   const { rows, weekDone, weekPlanned } = useMemo(
@@ -189,13 +186,6 @@ export function SessionsScreen({
       <div className="mt-auto shrink-0 pt-3 pb-1">
         <RunTrends today={today} version={version} />
       </div>
-      <button
-        type="button"
-        onClick={onGym}
-        className="mono-xs min-h-11 shrink-0 text-center text-ink-3 hover:text-ink"
-      >
-        the gym — log a lift →
-      </button>
     </div>
   );
 }

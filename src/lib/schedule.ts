@@ -44,24 +44,28 @@ const WIND_DOWN: Block = {
 
   The CEREMONY HYROX classes are gone (one visit was enough), and with them
   the last reason to train in the evening: pre-workout at 4 PM was wrecking
-  sleep, and Sarkeys is packed after 3. So the lifts own the 6:00 door-open
-  slot — five mornings, 90 minutes to Lower/Push/Engine/Pull/Full body, built
-  to leave nothing — and every afternoon carries a run at 4:10, right after
-  Spanish lets out next door. Wednesday's lift is the engine day (sleds,
-  SkiErg, wall balls — the HYROX sim); its run is now a hard track effort too,
-  by choice — engine AM and intervals PM stacked on the same day. That means
-  Thursday's intervals land on legs that already worked twice on Wednesday,
-  not on a night's rest — watch the Gym surface's recovery line here first.
+  sleep, and Sarkeys is packed after 3. So the lifts own the early-morning
+  slot — five mornings of squat / bench / deadlift / pull / press, each built
+  around a heavy top set and back-offs so the weight actually climbs week to
+  week — and every afternoon carries a run at 4:10, right after Spanish lets
+  out next door.
 
-  A week this loaded only works if recovery is watched rather than assumed:
-  the Gym surface tracks tonnage and session RPE and says so when the jump is
-  too big. Saturday is the long run; Sunday is mobility and a zone-1 shakeout,
-  recovery by contract — the day that makes seven days a week survivable.
+  ⚠ Wednesday is loaded on purpose and it is the week's live risk: a heavy
+  deadlift morning and a 6×600m track effort the same afternoon, with
+  Thursday's intervals landing on legs that worked twice the day before
+  rather than on a night's rest. Two hard runs on consecutive days breaks
+  the usual 48-hour rule. If anything is going to need backing off, it is
+  this pair — soften Thursday first.
+
+  The sets themselves live in Bevel, not here: this app owns the day, the
+  letters and the record, and one place for sets beats two. Saturday is the
+  long run; Sunday is mobility and a zone-1 shakeout, recovery by contract —
+  the day that makes seven days a week survivable.
 */
 
 /** Five mornings, one label — the brief carries which session today is. */
 function lift(brief: string): Block {
-  return { start: "06:00", end: "07:45", label: "Lift", kind: "training", brief };
+  return { start: "06:45", end: "08:30", label: "Lift", kind: "training", brief };
 }
 
 /**
@@ -77,7 +81,7 @@ const INTERVALS: Block = {
   end: "17:10",
   label: "Intervals",
   kind: "training",
-  brief: "5 × 1km @ 10k effort · 2min jog — engine was yesterday, legs have had a night",
+  brief: "5 × 1km @ 10k effort · 2min jog — ⚠ second hard run in two days, cut it short if the legs are flat",
 };
 
 const LONG_RUN: Block = {
@@ -142,42 +146,43 @@ const MWF_CLASSES: Block[] = [
 ];
 
 /**
- * Every weekday opens the same way: up at 5:30, under a bar when the doors
- * open at 6:00, and the day's quiet half hour lands *after* the session —
- * pre-workout goes in the water bottle on the walk over, and breakfast is
- * earned. What changes per day is only the brief on the lift.
+ * Every weekday opens the same way, and it opens later than it used to.
+ *
+ * The 5:30 alarm existed to clear a Deep Work block that no longer exists —
+ * the only real constraint left is the 10:08 walk to POLY on Tue/Thu, the
+ * earliest class of the week. Working back from that with nothing rushed
+ * leaves the whole morning 45 minutes later: against a 10 PM lights-out
+ * that is 8h15m in bed instead of 7h30m, which is the difference between
+ * absorbing five hard lifts a week and accumulating them.
+ *
+ * Sarkeys opens at 6:00, so 6:45 still beats the crowd by hours. Quiet time
+ * stays *after* the session and now gets a real 25 minutes with the walk to
+ * class outside it, rather than butting against it.
  */
 function weekdayMorning(liftBrief: string): Block[] {
   return [
-    { start: "05:30", end: "05:45", label: "Wake", kind: "personal" },
+    { start: "06:15", end: "06:30", label: "Wake", kind: "personal" },
     lift(liftBrief),
-    { start: "07:50", end: "08:20", label: "Breakfast", kind: "personal" },
-    { start: "08:20", end: "08:40", label: "Quiet Time", kind: "personal" },
+    { start: "08:30", end: "08:55", label: "Shower", kind: "personal" },
+    { start: "08:55", end: "09:25", label: "Breakfast", kind: "personal" },
+    { start: "09:25", end: "09:50", label: "Quiet Time", kind: "personal" },
   ];
 }
 
-/** Mon / Wed / Fri — deep work until the ENGL walk starts at 10:38. */
+/** Mon / Wed / Fri — the morning is open until the ENGL walk at 10:38. */
 function mwfDay(liftBrief: string): Block[] {
-  return [
-    ...weekdayMorning(liftBrief),
-    { start: "08:45", end: "10:35", label: "Deep Work", kind: "work" },
-    ...MWF_CLASSES,
-  ];
+  return [...weekdayMorning(liftBrief), ...MWF_CLASSES];
 }
 
 /** Tue / Thu — POLY at 10:30, the long study spine after lunch. */
 function trDay(liftBrief: string, run: Block): Block[] {
   return [
     ...weekdayMorning(liftBrief),
-    { start: "08:45", end: "10:05", label: "Deep Work", kind: "work" },
     POLY,
     { start: "11:50", end: "12:15", label: "Lunch", kind: "personal" },
-    // Second Deep Work block of the day — the habit is anchored to the first only.
-    { start: "12:15", end: "15:00", label: "Deep Work", kind: "work" },
     SPAN_MTWR,
     run,
     { start: "17:30", end: "18:15", label: "Dinner", kind: "personal" },
-    { start: "18:30", end: "21:15", label: "Build Block", kind: "work" },
     WIND_DOWN,
   ];
 }
@@ -196,10 +201,10 @@ function mwfEvening(span: Block, run: Block, rest: Block[]): Block[] {
 const MON_EVENING = mwfEvening(
   SPAN_MTWR,
   pmRun("16:50", "40 min conversational — legs will be heavy from the squats, that's fine"),
-  [{ start: "18:00", end: "21:15", label: "Build Block", kind: "work" }],
+  [],
 );
 
-/** Wednesday's hard effort — track work on top of the engine morning. */
+/** Wednesday's hard effort — track work on top of the deadlift morning. */
 const WED_HARD: Block = {
   start: "16:10",
   end: "16:55",
@@ -208,20 +213,17 @@ const WED_HARD: Block = {
   brief: "6 × 600m @ 5k effort · 90s jog — Sarkeys indoor track (6 laps/km); warm up + cool down inside the 45",
 };
 
-/** Wednesday — hard track effort after the engine morning; Build cut for BCM. */
+/** Wednesday — hard track effort after the deadlift morning, then BCM. */
 const WED_EVENING = mwfEvening(
   SPAN_MTWR,
   WED_HARD,
-  [
-    { start: "18:00", end: "20:00", label: "Build Block", kind: "work" },
-    { start: "20:30", end: "21:15", label: "BCM Renown", kind: "personal" },
-  ],
+  [{ start: "20:30", end: "21:15", label: "BCM Renown", kind: "personal" }],
 );
 
 const FRI_EVENING = mwfEvening(
   SPAN_FRI,
   pmRun("16:50", "40 min easy + 4 strides — shake the week out"),
-  [{ start: "18:00", end: "21:15", label: "Build Block", kind: "work" }],
+  [],
 );
 
 const SATURDAY: Block[] = [
@@ -229,7 +231,6 @@ const SATURDAY: Block[] = [
   { start: "07:15", end: "08:00", label: "Quiet Time", kind: "personal" },
   { start: "08:00", end: "08:30", label: "Breakfast", kind: "personal" },
   LONG_RUN,
-  { start: "12:00", end: "14:00", label: "Content", kind: "work" },
   WIND_DOWN,
 ];
 
@@ -267,23 +268,23 @@ const SUNDAY: Block[] = [
 export const WEEKLY_SCHEDULE: Record<Weekday, Block[]> = {
   0: SUNDAY,
   1: [
-    ...mwfDay("Lower (heavy) — squat 5×5 · RDL · split squat · leg press · calves"),
+    ...mwfDay("Lower A — squat top set @RPE8 + back-offs · RDL · split squat · calves"),
     ...MON_EVENING,
   ],
   2: trDay(
-    "Upper push — bench 5×5 · incline DB · seated press · dips · laterals",
+    "Upper push — bench top set @RPE8 + back-offs · incline DB · press · dips",
     pmRun("16:50", "40 min conversational — easy means easy"),
   ),
   3: [
-    ...mwfDay("Engine — HYROX sim: sleds · SkiErg · wall balls · carries, at effort"),
+    ...mwfDay("Lower B — deadlift top set @RPE8 + back-offs · front squat · hip thrust"),
     ...WED_EVENING,
   ],
   4: trDay(
-    "Upper pull — weighted pull-ups 5×5 · rows · pulldown · face pulls · arms",
+    "Upper pull — weighted pull-up top set @RPE8 + back-offs · rows · arms",
     INTERVALS,
   ),
   5: [
-    ...mwfDay("Full body — deadlift 5×3 · front squat · push press · chins"),
+    ...mwfDay("Full body — OHP top set @RPE8 + back-offs · chins · DB bench · carries (RPE 7)"),
     ...FRI_EVENING,
   ],
   6: SATURDAY,
@@ -347,7 +348,7 @@ export function trainingBlockOn(date: string): Block | undefined {
  * Every distinct block label across the week, in first-appearance order.
  * The habit editor offers these as anchor targets — a habit anchored to a
  * label is scheduled exactly on the days that label appears, which is how
- * "Deep Work" stays a weekday habit without anyone stating that anywhere.
+ * "Quiet Time" stays a weekday habit without anyone stating that anywhere.
  */
 export function allBlockLabels(): string[] {
   const seen = new Set<string>();
@@ -381,6 +382,15 @@ export function allBlockLabels(): string[] {
 const ROUTINE_KEY = "standard:routine:v1";
 export const ROUTINE_CHANGED = "standard:routine-changed";
 
+/**
+ * The template's revision. Bumped when the shipped week is rewritten (v3 was
+ * the morning-lift rebuild) — an override saved against an older revision is
+ * still honored, but it is *stale*: the ground moved underneath it, and the
+ * routine editor says so instead of letting a summer schedule silently
+ * outlive the semester that replaced it.
+ */
+export const TEMPLATE_REV = 3;
+
 const TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const KINDS: BlockKind[] = ["training", "class", "work", "personal", "rest"];
 
@@ -400,25 +410,48 @@ export function isRoutineBlock(v: unknown): v is Block {
 }
 
 type Overrides = Partial<Record<Weekday, Block[]>>;
+type OverrideRevs = Partial<Record<Weekday, number>>;
+interface OverrideStore {
+  days: Overrides;
+  revs: OverrideRevs;
+}
 
 let cacheRaw: string | null | undefined;
-let cacheVal: Overrides = {};
+let cacheVal: OverrideStore = { days: {}, revs: {} };
 
-function overrides(): Overrides {
-  if (typeof window === "undefined") return {};
+/*
+  Two stored shapes. The original was a flat weekday→blocks record with no
+  notion of which template it was edited against — so those read back with
+  rev 0, which is exactly right: they predate revisioning, and the honest
+  answer about their freshness is "unknown, treat as stale".
+*/
+function overrides(): OverrideStore {
+  if (typeof window === "undefined") return { days: {}, revs: {} };
   const raw = window.localStorage.getItem(ROUTINE_KEY);
   if (raw === cacheRaw) return cacheVal;
   cacheRaw = raw;
-  cacheVal = {};
+  cacheVal = { days: {}, revs: {} };
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
-      for (const d of [0, 1, 2, 3, 4, 5, 6] as Weekday[]) {
-        const arr = parsed[String(d)];
-        if (Array.isArray(arr) && arr.length > 0 && arr.every(isRoutineBlock)) {
-          cacheVal[d] = [...arr].sort(
-            (a, b) => toMinutes(a.start) - toMinutes(b.start),
-          );
+      const versioned =
+        parsed && typeof parsed === "object" && "days" in parsed;
+      const src = (versioned
+        ? (parsed as { days: unknown }).days
+        : parsed) as Record<string, unknown>;
+      const revs = versioned
+        ? ((parsed as { revs?: unknown }).revs as Record<string, unknown>) ?? {}
+        : {};
+      if (src && typeof src === "object") {
+        for (const d of [0, 1, 2, 3, 4, 5, 6] as Weekday[]) {
+          const arr = src[String(d)];
+          if (Array.isArray(arr) && arr.length > 0 && arr.every(isRoutineBlock)) {
+            cacheVal.days[d] = [...arr].sort(
+              (a, b) => toMinutes(a.start) - toMinutes(b.start),
+            );
+            const r = revs[String(d)];
+            cacheVal.revs[d] = typeof r === "number" ? r : 0;
+          }
         }
       }
     } catch {
@@ -428,18 +461,39 @@ function overrides(): Overrides {
   return cacheVal;
 }
 
+function persist(store: OverrideStore): void {
+  const dayKeys = Object.keys(store.days);
+  if (dayKeys.length === 0) {
+    window.localStorage.removeItem(ROUTINE_KEY);
+  } else {
+    window.localStorage.setItem(
+      ROUTINE_KEY,
+      JSON.stringify({ days: store.days, revs: store.revs }),
+    );
+  }
+  cacheRaw = undefined;
+  window.dispatchEvent(new Event(ROUTINE_CHANGED));
+}
+
 /** The day as the user has shaped it, falling back to the template. */
 export function routineFor(day: Weekday): Block[] {
-  return overrides()[day] ?? WEEKLY_SCHEDULE[day];
+  return overrides().days[day] ?? WEEKLY_SCHEDULE[day];
 }
 
 export function routineEdited(day: Weekday): boolean {
-  return overrides()[day] != null;
+  return overrides().days[day] != null;
 }
 
-/** Every stored override, for the backup bundle. */
-export function routineOverrides(): Overrides {
-  return overrides();
+/** An override saved against an older template than the one shipping now. */
+export function routineStale(day: Weekday): boolean {
+  const o = overrides();
+  return o.days[day] != null && (o.revs[day] ?? 0) < TEMPLATE_REV;
+}
+
+/** Every stored override (versioned shape), for the backup bundle. */
+export function routineOverrides(): Record<string, unknown> {
+  const o = overrides();
+  return { days: o.days, revs: o.revs };
 }
 
 /**
@@ -479,42 +533,52 @@ export function setRoutineDay(
     const problem = routineProblem(blocks);
     if (problem) return problem;
   }
-  const next: Overrides = { ...overrides() };
+  const cur = overrides();
+  const next: OverrideStore = {
+    days: { ...cur.days },
+    revs: { ...cur.revs },
+  };
   if (blocks) {
-    next[day] = [...blocks].sort(
+    next.days[day] = [...blocks].sort(
       (a, b) => toMinutes(a.start) - toMinutes(b.start),
     );
+    // Saving IS reviewing: the edit was made against the current template.
+    next.revs[day] = TEMPLATE_REV;
   } else {
-    delete next[day];
+    delete next.days[day];
+    delete next.revs[day];
   }
-  if (Object.keys(next).length === 0) {
-    window.localStorage.removeItem(ROUTINE_KEY);
-  } else {
-    window.localStorage.setItem(ROUTINE_KEY, JSON.stringify(next));
-  }
-  cacheRaw = undefined;
-  window.dispatchEvent(new Event(ROUTINE_CHANGED));
+  persist(next);
   return null;
 }
 
 /** Replace every override at once — the restore path. Trusts nothing. */
 export function setRoutineAll(raw: unknown): number {
   if (typeof window === "undefined" || !raw || typeof raw !== "object") return 0;
-  const next: Overrides = {};
-  let days = 0;
+  // Accept both bundle shapes: the versioned {days, revs} this app writes
+  // now, and the flat weekday record older backups carry — whose days
+  // restore with rev 0 and correctly read as stale until reviewed.
+  const versioned = "days" in (raw as Record<string, unknown>);
+  const src = (versioned
+    ? (raw as { days: unknown }).days
+    : raw) as Record<string, unknown>;
+  const revs = versioned
+    ? (((raw as { revs?: unknown }).revs as Record<string, unknown>) ?? {})
+    : {};
+  if (!src || typeof src !== "object") return 0;
+  const next: OverrideStore = { days: {}, revs: {} };
+  let count = 0;
   for (const d of [0, 1, 2, 3, 4, 5, 6] as Weekday[]) {
-    const arr = (raw as Record<string, unknown>)[String(d)];
+    const arr = src[String(d)];
     if (Array.isArray(arr) && arr.length > 0 && arr.every(isRoutineBlock)) {
       if (routineProblem(arr as Block[]) == null) {
-        next[d] = arr as Block[];
-        days += 1;
+        next.days[d] = arr as Block[];
+        const r = revs[String(d)];
+        next.revs[d] = typeof r === "number" ? r : 0;
+        count += 1;
       }
     }
   }
-  if (days > 0) {
-    window.localStorage.setItem(ROUTINE_KEY, JSON.stringify(next));
-    cacheRaw = undefined;
-    window.dispatchEvent(new Event(ROUTINE_CHANGED));
-  }
-  return days;
+  if (count > 0) persist(next);
+  return count;
 }
