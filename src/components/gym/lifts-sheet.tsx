@@ -158,6 +158,9 @@ function SessionRow({
                       (x.pr ? "▲" : ""),
                   )
                   .join(" · ")}
+                {e.userNote ? (
+                  <span className="text-ink-4"> — {e.userNote}</span>
+                ) : null}
               </p>
             ))}
           <button

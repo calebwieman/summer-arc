@@ -1314,6 +1314,24 @@ function Surface({
           {TITLES[page]}
         </h1>
         <p className="meta mt-1.5">{SUBTITLES[page]}</p>
+        {/* The map, drawn: one dot per surface, laid out exactly as the grid
+            is. Where you are is ink; everywhere you could swipe is line. The
+            gesture nav stays invisible on the day, but a surface two moves
+            from home earns a you-are-here. */}
+        <div className="mt-2 flex flex-col items-center gap-1" aria-hidden>
+          {GRID.map((r, ri) => (
+            <div key={ri} className="flex gap-1.5">
+              {r.map((p) => (
+                <span
+                  key={p}
+                  className={`h-1 w-1 rounded-pill ${
+                    p === page ? "bg-ink" : "bg-line-mid"
+                  }`}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
       {children}
     </motion.div>

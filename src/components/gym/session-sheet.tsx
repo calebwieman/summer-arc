@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Check, Plus } from "lucide-react";
+import { Check, Info, Plus } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { haptic, HAPTIC_COMMIT, HAPTIC_RELEASE } from "@/lib/haptics";
 import { TICK } from "@/lib/motion";
 import { formatClock } from "@/lib/clock";
+import { infoFor, plateReadout } from "@/lib/exercise-info";
 import {
   addCustomExercise,
   bestBefore,
@@ -23,23 +24,30 @@ import {
   type GymSession,
   type GymSet,
 } from "@/lib/gym";
+import { MuscleMap } from "./muscle-map";
+import { WeightPad, type PadKey } from "./weight-pad";
 
 /**
- * The logger — the thing that has to beat Bevel at the rack.
+ * The logger — the thing that has to beat a paper card at the rack.
  *
  * A sheet rather than a surface, because the surfaces cannot scroll and a
  * session is six exercises deep; and because a workout is taken *over* the
- * app, not navigated to. Everything here is tuned for two thumbs between
- * sets: every field arrives prefilled with last time's numbers (a normal day
- * is confirm-taps, not typing), the rest timer runs off wall-clock stamps so
- * locking the phone cannot stop it, and every commit writes straight through
- * to localStorage so force-quitting mid-workout loses nothing — reopening
- * the app resumes the session exactly where it stood.
+ * app, not navigated to. Everything is tuned for one thumb between sets:
+ * the number fields are read-only and all input goes through the gym keypad
+ * docked at the foot (see weight-pad.tsx — the system keyboard never rises),
+ * every field arrives prefilled with last time's numbers so a normal day is
+ * confirm-taps, the rest timer runs off wall-clock stamps and knows each
+ * lift's rest prescription, and every commit writes straight through to
+ * localStorage so force-quitting mid-workout loses nothing.
+ *
+ * Tapping an exercise's name opens what it *is*: three coaching cues and
+ * the blueprint muscle map, from lib/exercise-info.
  */
 
-/** 16px minimum — anything smaller makes iOS zoom the viewport on focus. */
+/** 16px minimum — matches the other number fields; sizing, not zoom-guard,
+    since these are read-only and iOS never focuses a keyboard into them. */
 const NUM_CLS =
-  "w-full rounded-sm border border-line-soft bg-surface-2 px-2 py-2.5 text-center font-mono text-[16px] tabular-nums text-ink placeholder:text-ink-4 outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus:border-line-mid";
+  "w-full rounded-sm border bg-surface-2 px-2 py-2.5 text-center font-mono text-[16px] tabular-nums text-ink placeholder:text-ink-4 outline-none focus-visible:ring-2 focus-visible:ring-accent/60";
 
 /** RPE cycles rather than picks — one thumb, five states, no popover. */
 const RPE_CYCLE: (number | undefined)[] = [undefined, 7, 8, 9, 10];
@@ -71,6 +79,13 @@ function mmss(ms: number): string {
 /** One key per visible row, so pending edits survive other rows committing. */
 type Pend = Record<string, { w?: string; r?: string; rpe?: number }>;
 
+/** Which field the gym keypad is currently feeding. */
+interface PadTarget {
+  ei: number;
+  j: number;
+  field: "w" | "r";
+}
+
 export function SessionSheet({
   sessionId,
   onClose,
@@ -90,13 +105,32 @@ export function SessionSheet({
   const [reviewNote, setReviewNote] = useState("");
   const [armDiscard, setArmDiscard] = useState(false);
   const [adding, setAdding] = useState("");
+  /** The keypad's target field, or null when the pad is down. */
+  const [pad, setPad] = useState<PadTarget | null>(null);
+  /** Exercise whose cues and muscle map are open. */
+  const [openInfo, setOpenInfo] = useState<number | null>(null);
+  /** Exercises whose note field is open even while still empty. */
+  const [noteOpen, setNoteOpen] = useState<Record<number, boolean>>({});
   /** Ticks once a second for the two timers; state so the sheet re-renders. */
   const [nowMs, setNowMs] = useState(() => Date.now());
   const armTimer = useRef<number | null>(null);
+  /*
+    First keystroke replaces the prefill instead of appending to it — the
+    field holds last week's number as a proposal, and "type 2" should start
+    "225", not "1852". Cleared the moment a digit lands or the field is
+    adjusted, so subsequent digits append normally.
+  */
+  const fresh = useRef(true);
 
-  // Load fresh state every time the sheet opens on a session.
-  useEffect(() => {
-    if (!sessionId) return;
+  /*
+    Load fresh state every time the sheet opens on a session — as a guarded
+    adjustment during render rather than an effect, which is the React-blessed
+    shape for "reset state when this prop changes": no extra committed frame
+    holding last workout's rows, and nothing for an effect to cascade.
+  */
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  if (sessionId != null && sessionId !== loadedId) {
+    setLoadedId(sessionId);
     setSession(getSession(sessionId));
     setPend({});
     setExtra({});
@@ -105,7 +139,10 @@ export function SessionSheet({
     setReviewNote("");
     setArmDiscard(false);
     setAdding("");
-  }, [sessionId]);
+    setPad(null);
+    setOpenInfo(null);
+    setNoteOpen({});
+  }
 
   useEffect(() => {
     if (!sessionId) return;
@@ -119,6 +156,25 @@ export function SessionSheet({
     },
     [],
   );
+
+  // The keypad's target row stays in view — the pad covers the foot of the
+  // sheet, and logging blind into a hidden row is worse than no pad at all.
+  const padWasOpen = useRef(false);
+  useEffect(() => {
+    if (!pad) {
+      padWasOpen.current = false;
+      return;
+    }
+    fresh.current = true;
+    const el = document.getElementById(`gym-row-${pad.ei}-${pad.j}`);
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    // First open moves keyboard/SR focus onto the pad; retargets don't,
+    // because focus is already inside it.
+    if (!padWasOpen.current) {
+      document.getElementById("gym-pad")?.focus();
+    }
+    padWasOpen.current = true;
+  }, [pad]);
 
   /*
     The judging bar per exercise, fixed at session start. Computed against
@@ -155,6 +211,44 @@ export function SessionSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id, session?.exercises.length]);
 
+  /** The set a row's fields fall back to when nothing has been typed. */
+  const fallbackFor = useCallback(
+    (ei: number, j: number): GymSet | undefined => {
+      if (!session) return undefined;
+      const ex = session.exercises[ei];
+      const ghost = ghosts.get(ex.name.toLowerCase());
+      return ghost?.[j] ?? ex.sets[ex.sets.length - 1] ?? ghost?.[ghost.length - 1];
+    },
+    [session, ghosts],
+  );
+
+  /** The effective text of a field: what the thumb sees, what commit reads. */
+  const valOf = useCallback(
+    (ei: number, j: number, field: "w" | "r"): string => {
+      const p = pend[`${ei}:${j}`];
+      const typed = field === "w" ? p?.w : p?.r;
+      if (typed != null) return typed;
+      const fb = fallbackFor(ei, j);
+      if (!fb) return "";
+      return field === "w" ? String(fb.weight) : String(fb.reps);
+    },
+    [pend, fallbackFor],
+  );
+
+  /** How many rows the plan prescribes for an exercise, extras included. */
+  const plannedRows = useCallback(
+    (ei: number): number => {
+      if (!session) return 0;
+      const ex = session.exercises[ei];
+      const ghost = ghosts.get(ex.name.toLowerCase());
+      return (
+        (ex.target?.sets ?? Math.max(ex.sets.length, ghost?.length ?? 0)) +
+        (extra[ei] ?? 0)
+      );
+    },
+    [session, ghosts, extra],
+  );
+
   if (!sessionId) return null;
 
   const write = (next: GymSession) => {
@@ -163,22 +257,36 @@ export function SessionSheet({
   };
 
   /** The most recent commit anywhere in the session — the rest timer's zero. */
-  const lastAt = session
-    ? Math.max(0, ...session.exercises.flatMap((e) => e.sets.map((s) => s.at ?? 0)))
-    : 0;
+  let lastAt = 0;
+  let lastExercise: string | null = null;
+  if (session) {
+    for (const e of session.exercises) {
+      for (const s of e.sets) {
+        if ((s.at ?? 0) > lastAt) {
+          lastAt = s.at ?? 0;
+          lastExercise = e.name;
+        }
+      }
+    }
+  }
+  /** The rest the last-worked lift prescribes, from the exercise library. */
+  const restTarget = lastExercise ? infoFor(lastExercise).rest * 1000 : 0;
+  const rested = lastAt > 0 && restTarget > 0 && nowMs - lastAt >= restTarget;
 
-  const commit = (ei: number, row: number) => {
-    if (!session) return;
+  const commit = (ei: number, row: number): boolean => {
+    if (!session) return false;
     const ex = session.exercises[ei];
     const key = `${ei}:${row}`;
     const p = pend[key];
-    const ghost = ghosts.get(ex.name.toLowerCase());
-    const fallback = ghost?.[row] ?? ex.sets[ex.sets.length - 1] ?? ghost?.[ghost.length - 1];
-    const weight = p?.w != null ? parseNum(p.w) : (fallback?.weight ?? null);
-    const reps = p?.r != null ? parseNum(p.r) : (fallback?.reps ?? null);
-    if (reps == null || reps <= 0 || weight == null) {
+    // Both numbers come from the same effective text the fields display --
+    // and an empty weight commits as 0, exactly as the pad's readout says.
+    // Half the Engine day is bodyweight; "type a zero first" is not a rule
+    // anyone should have to discover mid-burpee.
+    const weight = parseNum(valOf(ei, row, "w")) ?? 0;
+    const reps = parseNum(valOf(ei, row, "r"));
+    if (reps == null || reps <= 0) {
       haptic(6);
-      return;
+      return false;
     }
 
     const e1 = epley(weight, reps);
@@ -201,7 +309,19 @@ export function SessionSheet({
       delete n[key];
       return n;
     });
+    /*
+      A commit can arrive from the row's own check button while the pad is
+      aimed at that very row. The row re-renders committed, its inputs are
+      gone, and a pad left pointing there would type into a field nothing
+      renders. Re-aim it at the row that just became the open one; the log
+      key's own advance runs after this in the same batch and wins.
+    */
+    const newLen = ex.sets.length + 1;
+    setPad((cur) =>
+      cur && cur.ei === ei && cur.j < newLen ? { ei, j: newLen, field: "w" } : cur,
+    );
     haptic(pr ? HAPTIC_COMMIT : 10);
+    return true;
   };
 
   /** Tap a stamped row: the set comes back out, its numbers ready to re-edit. */
@@ -233,7 +353,103 @@ export function SessionSheet({
         rpe: removed.rpe,
       },
     }));
+    setPad({ ei, j: firstInput, field: "w" });
     haptic(HAPTIC_RELEASE);
+  };
+
+  /**
+   * One keystroke on the gym keypad. The pad itself is dumb — this is where
+   * a tap becomes an edit, a hop, or a logged set.
+   */
+  const onPadKey = (k: PadKey) => {
+    if (!pad || !session) return;
+    const { ei, j, field } = pad;
+    const key = `${ei}:${j}`;
+    const cur = valOf(ei, j, field);
+
+    const setVal = (v: string) =>
+      setPend((prev) => ({
+        ...prev,
+        [key]: { ...prev[key], [field === "w" ? "w" : "r"]: v },
+      }));
+
+    switch (k.t) {
+      case "digit": {
+        if (field === "r" && k.d === ".") return;
+        const base = fresh.current ? "" : cur;
+        fresh.current = false;
+        if (k.d === "." && base.includes(".")) return;
+        const next = k.d === "." && base === "" ? "0." : base + k.d;
+        if (next.replace(".", "").length > (field === "w" ? 5 : 3)) return;
+        setVal(next);
+        return;
+      }
+      case "bs": {
+        if (fresh.current) {
+          fresh.current = false;
+          setVal("");
+          return;
+        }
+        setVal(cur.slice(0, -1));
+        return;
+      }
+      case "inc": {
+        fresh.current = false;
+        const n = Math.max(0, (parseNum(cur) ?? 0) + k.by);
+        // Half-pound floor keeps float noise out of a plate math world.
+        setVal(String(field === "w" ? Math.round(n * 2) / 2 : Math.round(n)));
+        return;
+      }
+      case "next": {
+        setPad({ ei, j, field: field === "w" ? "r" : "w" });
+        return;
+      }
+      case "log": {
+        const before = session.exercises[ei].sets.length;
+        if (!commit(ei, j)) return;
+        // Flow: the pad walks the workout. Next row of this exercise while
+        // the plan has one; otherwise the first unfinished exercise; done
+        // when the card is full.
+        const nextJ = before + 1;
+        // The render always keeps one open row (rows = sets.length + 1), and
+        // plannedRows tracks sets.length for a no-target exercise -- so judged
+        // against the stale closure it would end the walk after every set of
+        // a freestyle lift. Mirror the render instead: a planned exercise
+        // walks its prescription, an unplanned one keeps walking until the
+        // pad is dismissed by hand.
+        const exNow = session.exercises[ei];
+        const planned = exNow.target
+          ? exNow.target.sets + (extra[ei] ?? 0)
+          : Math.max(nextJ + 1, ghosts.get(exNow.name.toLowerCase())?.length ?? 0) +
+            (extra[ei] ?? 0);
+        if (nextJ < planned) {
+          setPad({ ei, j: nextJ, field: "w" });
+          return;
+        }
+        for (let i = 0; i < session.exercises.length; i++) {
+          const ii = (ei + 1 + i) % session.exercises.length;
+          const ex2 = session.exercises[ii];
+          const done = ii === ei ? before + 1 : ex2.sets.length;
+          if (done < plannedRows(ii)) {
+            setPad({ ei: ii, j: done, field: "w" });
+            return;
+          }
+        }
+        setPad(null);
+        return;
+      }
+      case "close":
+        setPad(null);
+        return;
+    }
+  };
+
+  const setUserNote = (ei: number, text: string) => {
+    if (!session) return;
+    const exercises = session.exercises.map((e, i) =>
+      i === ei ? { ...e, userNote: text } : e,
+    );
+    write({ ...session, exercises });
   };
 
   const addExercise = (name: string) => {
@@ -299,14 +515,22 @@ export function SessionSheet({
     >
       {session ? (
         <div>
-          {/* The two clocks. Sticky, because they are why the phone is out. */}
+          {/* The two clocks. Sticky, because they are why the phone is out.
+              The rest readout knows each lift's prescription and says GO in
+              the one semantic colour the app allows for "good". */}
           <div className="sticky top-0 z-10 -mx-5 flex items-baseline justify-between border-b border-line-soft bg-surface px-5 pb-2">
             <span className="mono-xs tabular-nums text-ink-3">
               {mmss(nowMs - session.startedAt)} in · {totalSets} sets ·{" "}
               {formatLbs(sessionTonnage(session))} lb
             </span>
-            <span className="mono-xs tabular-nums text-ink-2">
-              {lastAt > 0 ? `rest ${mmss(nowMs - lastAt)}` : "first set"}
+            <span
+              className={`mono-xs tabular-nums ${rested ? "text-ok" : "text-ink-2"}`}
+            >
+              {lastAt > 0
+                ? `rest ${mmss(nowMs - lastAt)}${
+                    restTarget > 0 ? ` / ${mmss(restTarget)}` : ""
+                  }${rested ? " · go" : ""}`
+                : "first set"}
             </span>
           </div>
 
@@ -314,6 +538,7 @@ export function SessionSheet({
             <div className="mt-4 space-y-6 pb-2">
               {session.exercises.map((ex, ei) => {
                 const ghost = ghosts.get(ex.name.toLowerCase());
+                const einfo = infoFor(ex.name);
                 // A row holding an in-flight edit must stay mounted even when
                 // an uncommit shrinks the count — losing an input mid-typing
                 // is the one thing a logger can never do.
@@ -321,16 +546,30 @@ export function SessionSheet({
                   const [pi, pj] = k.split(":");
                   return Number(pi) === ei ? Math.max(a, Number(pj) + 1) : a;
                 }, 0);
-                const rows = Math.max(
-                  ex.sets.length + 1,
-                  pendRows,
-                  (ex.target?.sets ?? Math.max(ex.sets.length, ghost?.length ?? 0)) +
-                    (extra[ei] ?? 0),
-                );
+                const rows = Math.max(ex.sets.length + 1, pendRows, plannedRows(ei));
+                const showNote = noteOpen[ei] || !!ex.userNote;
                 return (
                   <section key={ex.name}>
                     <div className="flex items-baseline gap-2">
-                      <h3 className="truncate text-[15px] text-ink">{ex.name}</h3>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          haptic(6);
+                          setOpenInfo(openInfo === ei ? null : ei);
+                        }}
+                        aria-expanded={openInfo === ei}
+                        aria-label={`${ex.name} — how to do it`}
+                        className="flex min-w-0 items-baseline gap-1.5 text-left"
+                      >
+                        <span className="truncate text-[15px] text-ink">
+                          {ex.name}
+                        </span>
+                        <Info
+                          className={`h-3.5 w-3.5 shrink-0 self-center ${
+                            openInfo === ei ? "text-ink" : "text-ink-4"
+                          }`}
+                        />
+                      </button>
                       <span className="mono-xs ml-auto shrink-0 text-ink-4">
                         {ex.target ? `${ex.target.sets}×${ex.target.reps}` : ""}
                       </span>
@@ -345,6 +584,36 @@ export function SessionSheet({
                           .map((g) => (g.weight > 0 ? `${g.weight}×${g.reps}` : `×${g.reps}`))
                           .join(" · ")}
                       </p>
+                    ) : null}
+
+                    {/* What the lift is: three cues and the blueprint body. */}
+                    {openInfo === ei ? (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={TICK}
+                        className="mt-2.5 flex gap-4 rounded-sm border border-line-soft bg-surface-2 p-3"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <ul className="space-y-1.5">
+                            {einfo.cues.map((c) => (
+                              <li key={c} className="mono-xs flex gap-1.5 text-ink-2">
+                                <span aria-hidden className="text-ink-4">
+                                  ·
+                                </span>
+                                <span>{c}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="mono-xs mt-2 text-ink-4">
+                            rest ~{einfo.rest}s between sets
+                          </p>
+                        </div>
+                        <MuscleMap
+                          primary={einfo.primary}
+                          secondary={einfo.secondary}
+                        />
+                      </motion.div>
                     ) : null}
 
                     <div className="mt-2 space-y-1.5">
@@ -392,51 +661,70 @@ export function SessionSheet({
 
                         const key = `${ei}:${j}`;
                         const p = pend[key];
-                        const fb =
-                          ghost?.[j] ??
-                          ex.sets[ex.sets.length - 1] ??
-                          ghost?.[ghost.length - 1];
-                        const wVal = p?.w ?? (fb ? String(fb.weight) : "");
-                        const rVal = p?.r ?? (fb ? String(fb.reps) : "");
                         const isNext = j === ex.sets.length;
+                        const activeW =
+                          pad?.ei === ei && pad.j === j && pad.field === "w";
+                        const activeR =
+                          pad?.ei === ei && pad.j === j && pad.field === "r";
                         return (
-                          <div key={j} className="flex items-center gap-2">
+                          <div
+                            key={j}
+                            id={`gym-row-${ei}-${j}`}
+                            className="flex items-center gap-2"
+                          >
                             <span className="mono-xs w-5 shrink-0 text-ink-4">
                               {j + 1}
                             </span>
                             <label className="w-[86px]">
                               <span className="sr-only">
-                                Set {j + 1} weight in pounds
+                                Set {j + 1} weight in pounds -- opens keypad
                               </span>
+                              {/* Read-only on purpose: the gym keypad below is
+                                  the only input, so iOS never raises its own
+                                  keyboard over the sheet. */}
                               <input
-                                inputMode="decimal"
-                                enterKeyHint="next"
+                                readOnly
+                                inputMode="none"
                                 placeholder="lb"
-                                value={wVal}
-                                onChange={(e) =>
-                                  setPend((prev) => ({
-                                    ...prev,
-                                    [key]: { ...prev[key], w: e.target.value },
-                                  }))
-                                }
-                                className={NUM_CLS}
+                                value={valOf(ei, j, "w")}
+                                onClick={() => {
+                                  haptic(4);
+                                  setPad({ ei, j, field: "w" });
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    setPad({ ei, j, field: "w" });
+                                  }
+                                }}
+                                className={`${NUM_CLS} ${
+                                  activeW ? "border-accent" : "border-line-soft"
+                                }`}
                               />
                             </label>
                             <span className="mono-xs shrink-0 text-ink-4">×</span>
                             <label className="w-[64px]">
-                              <span className="sr-only">Set {j + 1} reps</span>
+                              <span className="sr-only">
+                                Set {j + 1} reps -- opens keypad
+                              </span>
                               <input
-                                inputMode="numeric"
-                                enterKeyHint="done"
+                                readOnly
+                                inputMode="none"
                                 placeholder="reps"
-                                value={rVal}
-                                onChange={(e) =>
-                                  setPend((prev) => ({
-                                    ...prev,
-                                    [key]: { ...prev[key], r: e.target.value },
-                                  }))
-                                }
-                                className={NUM_CLS}
+                                value={valOf(ei, j, "r")}
+                                onClick={() => {
+                                  haptic(4);
+                                  setPad({ ei, j, field: "r" });
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    setPad({ ei, j, field: "r" });
+                                  }
+                                }}
+                                className={`${NUM_CLS} ${
+                                  activeR ? "border-accent" : "border-line-soft"
+                                }`}
                               />
                             </label>
                             <button
@@ -478,16 +766,44 @@ export function SessionSheet({
                       })}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        haptic(6);
-                        setExtra((prev) => ({ ...prev, [ei]: (prev[ei] ?? 0) + 1 }));
-                      }}
-                      className="mono-xs -ml-2 mt-1.5 flex min-h-11 items-center gap-1 px-2 text-ink-3 hover:text-ink"
-                    >
-                      <Plus className="h-3 w-3" /> set
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          haptic(6);
+                          setExtra((prev) => ({ ...prev, [ei]: (prev[ei] ?? 0) + 1 }));
+                        }}
+                        className="mono-xs -ml-2 mt-1.5 flex min-h-11 items-center gap-1 px-2 text-ink-3 hover:text-ink"
+                      >
+                        <Plus className="h-3 w-3" /> set
+                      </button>
+                      {!showNote ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            haptic(6);
+                            setNoteOpen((prev) => ({ ...prev, [ei]: true }));
+                          }}
+                          className="mono-xs mt-1.5 flex min-h-11 items-center gap-1 px-2 text-ink-4 hover:text-ink-2"
+                        >
+                          <Plus className="h-3 w-3" /> note
+                        </button>
+                      ) : null}
+                    </div>
+
+                    {/* What a sentence is good at, per lift — "grip gave out
+                        set 4", "try the low bar next week". Write-through,
+                        like every field in this sheet. */}
+                    {showNote ? (
+                      <input
+                        type="text"
+                        value={ex.userNote ?? ""}
+                        onChange={(e) => setUserNote(ei, e.target.value)}
+                        placeholder={`note on ${ex.name.toLowerCase()}…`}
+                        enterKeyHint="done"
+                        className="mt-1.5 w-full rounded-sm border border-line-soft bg-surface-2 px-3 py-2.5 text-[16px] text-ink placeholder:text-ink-4 outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                      />
+                    ) : null}
                   </section>
                 );
               })}
@@ -536,6 +852,7 @@ export function SessionSheet({
                 type="button"
                 onClick={() => {
                   haptic(10);
+                  setPad(null);
                   setMode("review");
                 }}
                 whileTap={{ scale: 0.97 }}
@@ -544,6 +861,26 @@ export function SessionSheet({
               >
                 finish session
               </motion.button>
+
+              {/* The gym keypad. Docked at the foot, and only while a field
+                  wants it — the sheet is a list first and a keyboard second. */}
+              {pad ? (
+                <WeightPad
+                  label={`${session.exercises[pad.ei]?.name ?? ""} · set ${pad.j + 1}`}
+                  field={pad.field}
+                  value={valOf(pad.ei, pad.j, pad.field)}
+                  plates={
+                    pad.field === "w"
+                      ? plateReadout(
+                          session.exercises[pad.ei]?.name ?? "",
+                          parseNum(valOf(pad.ei, pad.j, "w")) ?? 0,
+                        )
+                      : null
+                  }
+                  canLog={(parseNum(valOf(pad.ei, pad.j, "r")) ?? 0) > 0}
+                  onKey={onPadKey}
+                />
+              ) : null}
             </div>
           ) : (
             /* ---------------------------------------------------- review */

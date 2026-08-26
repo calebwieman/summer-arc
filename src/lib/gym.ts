@@ -43,7 +43,10 @@ export interface GymExercise {
   sets: GymSet[];
   /** Per-plan prescription, carried so the logger can show "5×5". */
   target?: { sets: number; reps: number };
+  /** The plan's guidance line ("per leg", "reps = meters"), seeded at start. */
   note?: string;
+  /** What the lifter wrote about it — "grip gave out set 4". Theirs, not ours. */
+  userNote?: string;
 }
 
 export interface GymSession {

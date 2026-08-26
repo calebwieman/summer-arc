@@ -187,8 +187,10 @@ export function GymScreen({
           {plan?.focus ?? "the gym is still open — a freestyle session logs the same"}
         </p>
         {plan ? (
-          <p className="mono-xs mt-2 truncate text-ink-4">
-            {plan.exercises.map((e) => e.name).join(" · ")}
+          <p className="mono-xs mt-2 leading-relaxed text-ink-4">
+            {plan.exercises
+              .map((e) => `${e.name} ${e.sets}×${e.reps}`)
+              .join(" · ")}
           </p>
         ) : null}
         <motion.button
