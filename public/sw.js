@@ -10,7 +10,7 @@
 // shell would otherwise keep serving the overlapping layout.
 // v31: the Gym shipped (v1+v2) without a bump — an offline fallback could
 // still serve the pre-gym shell. This purge retires it everywhere.
-const CACHE_NAME = "standard-cache-v32";
+const CACHE_NAME = "standard-cache-v33";
 const APP_SHELL = [
   "/",
   "/manifest.json",
